@@ -1,0 +1,516 @@
+/* ============================================
+   基础变量 — 浅色模式
+   ============================================ */
+:root {
+    --ds-bg: #FCFBFA;
+    --ds-bg-secondary: #F4F2EE;
+    --ds-bg-tertiary: #EFECE7;
+    --ds-text-primary: #2E2C2A;
+    --ds-text-secondary: #8C857D;
+    --ds-text-tertiary: #A8A29A;
+    --ds-primary: #1877F2;
+    --ds-primary-hover: #1565D8;
+    --ds-success: #34D399;
+    --ds-warning: #D97706;
+    --ds-error: #E5484D;
+    --ds-bubble-user: #1877F2;
+    --ds-bubble-user-text: #FFFFFF;
+    --ds-bubble-ai: #FFFFFF;
+    --ds-bubble-ai-text: #2E2C2A;
+}
+
+body,
+.ds-scroll-area,
+main,
+#root > div {
+    background-color: #FCFBFA !important;
+    color: #2E2C2A !important;
+}
+
+header,
+nav,
+[class*="header"] {
+    background-color: #FCFBFA !important;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06) !important;
+}
+
+[data-message-author-role="user"] .ds-markdown,
+[data-message-author-role="user"] [class*="bubble"],
+[class*="UserMessage"] {
+    background-color: var(--ds-bubble-user) !important;
+    color: var(--ds-bubble-user-text) !important;
+    border-radius: 18px 18px 4px 18px !important;
+    box-shadow: 0 1px 2px rgba(24, 119, 242, 0.15) !important;
+}
+
+[data-message-author-role="assistant"] .ds-markdown,
+[data-message-author-role="assistant"] [class*="bubble"],
+[class*="AssistantMessage"] {
+    background-color: var(--ds-bubble-ai) !important;
+    color: var(--ds-bubble-ai-text) !important;
+    border-radius: 18px 18px 18px 4px !important;
+    border: 1px solid rgba(0, 0, 0, 0.05) !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04) !important;
+}
+
+#chat-input,
+textarea[class*="_27c9245"] {
+    background-color: #FFFFFF !important;
+    color: #2E2C2A !important;
+    border: 1px solid rgba(0, 0, 0, 0.1) !important;
+    border-radius: 14px !important;
+    caret-color: #1877F2 !important;
+}
+
+#chat-input:focus,
+textarea[class*="_27c9245"]:focus {
+    border-color: #1877F2 !important;
+    box-shadow: 0 0 0 3px rgba(24, 119, 242, 0.1) !important;
+    outline: none !important;
+}
+
+#chat-input::placeholder,
+textarea[class*="_27c9245"]::placeholder {
+    color: #A8A29A !important;
+}
+
+pre,
+code {
+    background-color: #F4F2EE !important;
+    color: #2E2C2A !important;
+    border: 1px solid rgba(0, 0, 0, 0.06) !important;
+    border-radius: 8px !important;
+}
+
+pre code {
+    border: none !important;
+    background: transparent !important;
+}
+
+:not(pre) > code {
+    background-color: #EFECE7 !important;
+    color: #D97706 !important;
+    padding: 2px 6px !important;
+    border-radius: 4px !important;
+    font-size: 0.9em !important;
+}
+
+blockquote {
+    border-left: 3px solid #726293 !important;
+    background-color: rgba(114, 98, 147, 0.05) !important;
+    color: #615D59 !important;
+    padding: 12px 16px !important;
+    border-radius: 0 8px 8px 0 !important;
+}
+
+a {
+    color: #1877F2 !important;
+    text-decoration-color: rgba(24, 119, 242, 0.3) !important;
+}
+a:hover {
+    color: #1565D8 !important;
+}
+
+aside,
+[class*="sidebar"] {
+    background-color: #F4F2EE !important;
+    border-right: 1px solid rgba(0, 0, 0, 0.06) !important;
+}
+
+button[class*="primary"],
+button[class*="send"] {
+    background-color: #1877F2 !important;
+    color: #FFFFFF !important;
+    border-radius: 10px !important;
+    transition: background-color 0.15s ease !important;
+}
+button[class*="primary"]:hover,
+button[class*="send"]:hover {
+    background-color: #1565D8 !important;
+}
+
+::-webkit-scrollbar {
+    width: 8px;
+}
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+::-webkit-scrollbar-thumb {
+    background-color: rgba(0, 0, 0, 0.1);
+    border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(0, 0, 0, 0.2);
+}
+
+::selection {
+    background-color: rgba(217, 119, 6, 0.2) !important;
+    color: #2E2C2A !important;
+}
+
+[class*="loading"] .dot,
+[class*="typing"] .dot {
+    background-color: #34D399 !important;
+}
+
+[class*="thinking"] .cursor,
+[class*="streaming"] .cursor {
+    background: linear-gradient(90deg, #2D7FF9, #726293) !important;
+    -webkit-background-clip: text !important;
+    -webkit-text-fill-color: transparent !important;
+    animation: flow 2s ease-in-out infinite !important;
+}
+@keyframes flow {
+    0%,
+    100% {
+        opacity: 1
+    }
+    50% {
+        opacity: 0.5
+    }
+}
+
+/* ============================================
+   深色模式基础
+   ============================================ */
+@media (prefers-color-scheme: dark) {
+
+    :root {
+        --ds-bg: #1C1B1A;
+        --ds-bg-secondary: #22201E;
+        --ds-bg-tertiary: #2A2825;
+        --ds-text-primary: #E8E5E1;
+        --ds-text-secondary: #9C958D;
+        --ds-primary: #4A9EFF;
+        --ds-primary-hover: #6BB0FF;
+        --ds-bubble-user: #4A9EFF;
+        --ds-bubble-user-text: #0F0E0D;
+        --ds-bubble-ai: #2A2825;
+        --ds-bubble-ai-text: #E8E5E1;
+    }
+
+    body,
+    .ds-scroll-area,
+    main,
+    #root > div {
+        background-color: #1C1B1A !important;
+        color: #E8E5E1 !important;
+    }
+    header,
+    nav,
+    [class*="header"] {
+        background-color: #1C1B1A !important;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+    }
+    [data-message-author-role="user"] .ds-markdown,
+    [data-message-author-role="user"] [class*="bubble"],
+    [class*="UserMessage"] {
+        background-color: var(--ds-bubble-user) !important;
+        color: var(--ds-bubble-user-text) !important;
+    }
+    [data-message-author-role="assistant"] .ds-markdown,
+    [data-message-author-role="assistant"] [class*="bubble"],
+    [class*="AssistantMessage"] {
+        background-color: var(--ds-bubble-ai) !important;
+        color: var(--ds-bubble-ai-text) !important;
+        border: 1px solid rgba(255, 255, 255, 0.06) !important;
+    }
+    #chat-input,
+    textarea[class*="_27c9245"] {
+        background-color: #22201E !important;
+        color: #E8E5E1 !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        caret-color: #4A9EFF !important;
+    }
+    #chat-input:focus,
+    textarea[class*="_27c9245"]:focus {
+        border-color: #4A9EFF !important;
+        box-shadow: 0 0 0 3px rgba(74, 158, 255, 0.15) !important;
+    }
+    pre,
+    code {
+        background-color: #22201E !important;
+        color: #E8E5E1 !important;
+        border: 1px solid rgba(255, 255, 255, 0.06) !important;
+    }
+    :not(pre) > code {
+        background-color: #2A2825 !important;
+        color: #FBBF24 !important;
+    }
+    blockquote {
+        border-left: 3px solid #9B8EC4 !important;
+        background-color: rgba(155, 142, 196, 0.08) !important;
+        color: #B8B2AA !important;
+    }
+    a {
+        color: #4A9EFF !important;
+    }
+    aside,
+    [class*="sidebar"] {
+        background-color: #22201E !important;
+        border-right: 1px solid rgba(255, 255, 255, 0.06) !important;
+    }
+    button[class*="primary"],
+    button[class*="send"] {
+        background-color: #4A9EFF !important;
+        color: #0F0E0D !important;
+    }
+    button[class*="primary"]:hover,
+    button[class*="send"]:hover {
+        background-color: #6BB0FF !important;
+    }
+    ::-webkit-scrollbar-thumb {
+        background-color: rgba(255, 255, 255, 0.1);
+    }
+    ::-webkit-scrollbar-thumb:hover {
+        background-color: rgba(255, 255, 255, 0.2);
+    }
+    ::selection {
+        background-color: rgba(251, 191, 36, 0.25) !important;
+        color: #E8E5E1 !important;
+    }
+}
+
+/* ============================================
+   整理模式 — 暖色点缀（琥珀 / 麦田黄）
+   ============================================ */
+@when organizeMode {
+
+    /* 主交互色改为琥珀 */
+    :root {
+        --ds-primary: #D97706;
+        --ds-primary-hover: #B45309;
+        --ds-bubble-user: #F59E0B;
+        --ds-bubble-user-text: #1C1917;
+    }
+
+    [data-message-author-role="user"] .ds-markdown,
+    [data-message-author-role="user"] [class*="bubble"],
+    [class*="UserMessage"] {
+        background-color: #F59E0B !important;
+        color: #1C1917 !important;
+        box-shadow: 0 1px 2px rgba(217, 119, 6, 0.2) !important;
+    }
+
+    button[class*="primary"],
+    button[class*="send"] {
+        background-color: #D97706 !important;
+    }
+    button[class*="primary"]:hover,
+    button[class*="send"]:hover {
+        background-color: #B45309 !important;
+    }
+
+    /* 标题加暖色下划线 */
+    h1,
+    h2,
+    h3 {
+        position: relative;
+    }
+    h1::after,
+    h2::after,
+    h3::after {
+        content: "";
+        display: block;
+        width: 2.5em;
+        height: 3px;
+        margin-top: 6px;
+        border-radius: 2px;
+        background: linear-gradient(90deg, #F59E0B, #FBBF24, transparent);
+    }
+
+    /* 加粗文字暖底高亮 */
+    strong,
+    b {
+        background: linear-gradient(transparent 60%, rgba(251, 191, 36, 0.35) 60%);
+        padding: 0 2px;
+        border-radius: 2px;
+    }
+
+    /* 列表标记暖色 */
+    ul > li::marker,
+    ol > li::marker {
+        color: #D97706 !important;
+    }
+
+    /* 引用块变暖橙 */
+    blockquote {
+        border-left-color: #F59E0B !important;
+        background-color: rgba(245, 158, 11, 0.06) !important;
+    }
+
+    /* 分割线暖色渐变 */
+    hr {
+        border: none;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(217, 119, 6, 0.3), transparent);
+    }
+
+    /* 行内代码暖底 */
+    :not(pre) > code {
+        color: #B45309 !important;
+        background-color: rgba(251, 191, 36, 0.15) !important;
+    }
+
+    /* 链接暖色 */
+    a {
+        color: #D97706 !important;
+        text-decoration-color: rgba(217, 119, 6, 0.3) !important;
+    }
+    a:hover {
+        color: #B45309 !important;
+    }
+
+    /* 选中高亮更暖 */
+    ::selection {
+        background-color: rgba(251, 191, 36, 0.4) !important;
+        color: #1C1917 !important;
+    }
+
+    /* 输入框聚焦暖光 */
+    #chat-input:focus,
+    textarea[class*="_27c9245"]:focus {
+        border-color: #D97706 !important;
+        box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.12) !important;
+    }
+}
+
+/* ============================================
+   心流模式 — 全灰阶去彩（优先级最高，放最后）
+   ============================================ */
+@when flowMode {
+
+    /* 覆盖所有彩色变量为中性灰 */
+    :root {
+        --ds-primary: #6B6B6B;
+        --ds-primary-hover: #4A4A4A;
+        --ds-bubble-user: #4A4A4A;
+        --ds-bubble-user-text: #FFFFFF;
+        --ds-bubble-ai: #F8F7F5;
+        --ds-bubble-ai-text: #2E2C2A;
+        --ds-success: #B8B2AA;
+        --ds-warning: #B8B2AA;
+        --ds-error: #B8B2AA;
+    }
+
+    /* 用户气泡变灰 */
+    [data-message-author-role="user"] .ds-markdown,
+    [data-message-author-role="user"] [class*="bubble"],
+    [class*="UserMessage"] {
+        background-color: #4A4A4A !important;
+        color: #FFFFFF !important;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1) !important;
+    }
+
+    /* AI 气泡去边框 */
+    [data-message-author-role="assistant"] .ds-markdown,
+    [data-message-author-role="assistant"] [class*="bubble"],
+    [class*="AssistantMessage"] {
+        background-color: #F8F7F5 !important;
+        border: 1px solid rgba(0, 0, 0, 0.04) !important;
+        box-shadow: none !important;
+    }
+
+    /* 所有彩色文字变灰 */
+    a {
+        color: #6B6B6B !important;
+        text-decoration-color: rgba(107, 107, 107, 0.3) !important;
+    }
+    a:hover {
+        color: #4A4A4A !important;
+    }
+
+    :not(pre) > code {
+        color: #6B6B6B !important;
+        background-color: #F0EEEA !important;
+    }
+
+    blockquote {
+        border-left-color: #B8B2AA !important;
+        background-color: rgba(0, 0, 0, 0.02) !important;
+        color: #615D59 !important;
+    }
+
+    /* 按钮变灰 */
+    button[class*="primary"],
+    button[class*="send"] {
+        background-color: #6B6B6B !important;
+        color: #FFFFFF !important;
+    }
+    button[class*="primary"]:hover,
+    button[class*="send"]:hover {
+        background-color: #4A4A4A !important;
+    }
+
+    /* 加载动画去彩 */
+    [class*="loading"] .dot,
+    [class*="typing"] .dot {
+        background-color: #B8B2AA !important;
+    }
+
+    /* AI 思考光标 — 极弱蓝灰，无渐变 */
+    [class*="thinking"] .cursor,
+    [class*="streaming"] .cursor {
+        background: none !important;
+        -webkit-background-clip: initial !important;
+        -webkit-text-fill-color: #A8C8E8 !important;
+        color: #A8C8E8 !important;
+        animation: none !important;
+    }
+
+    /* 输入框光标保留极弱蓝 */
+    #chat-input,
+    textarea[class*="_27c9245"] {
+        caret-color: #A8C8E8 !important;
+    }
+
+    /* 选中高亮变中性 */
+    ::selection {
+        background-color: rgba(0, 0, 0, 0.1) !important;
+        color: #2E2C2A !important;
+    }
+
+    /* 深色模式下的心流覆盖 */
+    @media (prefers-color-scheme: dark) {
+        :root {
+            --ds-primary: #8C857D;
+            --ds-primary-hover: #A8A29A;
+            --ds-bubble-user: #4A4A4A;
+            --ds-bubble-user-text: #E8E5E1;
+            --ds-bubble-ai: #242220;
+            --ds-bubble-ai-text: #E8E5E1;
+        }
+        [data-message-author-role="user"] .ds-markdown,
+        [data-message-author-role="user"] [class*="bubble"],
+        [class*="UserMessage"] {
+            background-color: #4A4A4A !important;
+            color: #E8E5E1 !important;
+        }
+        [data-message-author-role="assistant"] .ds-markdown,
+        [data-message-author-role="assistant"] [class*="bubble"],
+        [class*="AssistantMessage"] {
+            background-color: #242220 !important;
+            border: 1px solid rgba(255, 255, 255, 0.04) !important;
+        }
+        a {
+            color: #8C857D !important;
+        }
+        :not(pre) > code {
+            color: #B8B2AA !important;
+            background-color: #2A2825 !important;
+        }
+        blockquote {
+            border-left-color: #6B6B6B !important;
+            background-color: rgba(255, 255, 255, 0.03) !important;
+        }
+        button[class*="primary"],
+        button[class*="send"] {
+            background-color: #6B6B6B !important;
+            color: #E8E5E1 !important;
+        }
+        ::selection {
+            background-color: rgba(255, 255, 255, 0.1) !important;
+            color: #E8E5E1 !important;
+        }
+    }
+}
