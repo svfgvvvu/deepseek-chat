@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         DeepSeek Wireloom 预览按钮
 // @namespace    https://github.com/StardockCorp/Wireloom
-// @version      19.0.0
-// @description  为 DeepSeek Chat 中的 wireloom 代码块添加预览按钮，支持放大查看
+// @version      20.0.0
+// @description  为 DeepSeek Chat 中的 wireloom 代码块添加预览、复制图片、放大查看
 // @author       You
 // @match        https://chat.deepseek.com/*
 // @grant        none
@@ -18,42 +18,33 @@
     let uidCounter = 0;
     const timers = new WeakMap();
 
+    // ============================================================
+    // 引擎
+    // ============================================================
     function getWireloom() {
-        if (typeof wireloom === 'undefined' || !wireloom) {
-            // console.error('[DeepSeek Wireloom] wireloom 全局对象未找到');
-            return null;
-        }
+        if (typeof wireloom === 'undefined' || !wireloom) return null;
         if (!getWireloom._initialized) {
             try {
                 wireloom.initialize({ theme: 'default' });
                 getWireloom._initialized = true;
-                // console.log('[DeepSeek Wireloom] 引擎初始化完成');
-            } catch (e) {
-                // console.error('[DeepSeek Wireloom] 初始化失败:', e);
-                return null;
-            }
+            } catch (e) { return null; }
         }
         return wireloom;
     }
 
+    // ============================================================
+    // 提取源码
+    // ============================================================
     function extractWireloomSource(container) {
         const pre = container.querySelector('pre');
         if (!pre) return '';
-
-        const uid = container.dataset.wlUid || '?';
-
-        // 1. 优先按 DeepSeek 的行结构取：直接子 span 就是一行
         let lines;
         const spans = pre.querySelectorAll(':scope > span');
         if (spans.length > 0) {
             lines = Array.from(spans).map(s => s.textContent);
         } else {
-            // 2. 兜底：DOM 结构变了就直接按换行拆
-            // console.warn('[DeepSeek Wireloom] uid=' + uid + ' 未找到行 span，改用 textContent 拆分');
             lines = pre.textContent.split(/\r?\n/);
         }
-
-        // 3. 过滤空行和围栏行，保留原始缩进
         const cleaned = [];
         for (const line of lines) {
             const trimmed = line.trim();
@@ -61,15 +52,10 @@
             if (trimmed.startsWith('```')) continue;
             cleaned.push(line);
         }
-
-        // 4. 统一处理：去零宽字符、去残留 \r、trim 首尾
-        const result = cleaned.join('\n')
-        .replace(/[\u200b\u200c\u200d]/g, '')
-        .replace(/\r/g, '')
-        .trim();
-
-        // console.log('[DeepSeek Wireloom] uid=' + uid + ' 提取 ' + cleaned.length + ' 行');
-        return result;
+        return cleaned.join('\n')
+            .replace(/[\u200b\u200c\u200d]/g, '')
+            .replace(/\r/g, '')
+            .trim();
     }
 
     function isWireloomBlock(container) {
@@ -87,69 +73,383 @@
     }
 
     // ============================================================
-    // 大画布处理：确保 viewBox + 放大物理尺寸 + 响应式缩放
+    // 处理 SVG：保持原比例，移除固定尺寸，交给 CSS 自适应
     // ============================================================
     function prepareSvg(svgString) {
         const parser = new DOMParser();
         const doc = parser.parseFromString(svgString, 'image/svg+xml');
         const svg = doc.documentElement;
 
-        let vb = svg.getAttribute('viewBox');
-        if (!vb) {
+        if (!svg.getAttribute('viewBox')) {
             const w = parseFloat(svg.getAttribute('width')) || 800;
             const h = parseFloat(svg.getAttribute('height')) || 600;
-            vb = `0 0 ${w} ${h}`;
-            svg.setAttribute('viewBox', vb);
+            svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
         }
-
-        const parts = vb.split(/[\s,]+/).map(Number);
-        const baseW = parts[2] || 800;
-        const baseH = parts[3] || 600;
-        svg.setAttribute('width', baseW * 4);
-        svg.setAttribute('height', baseH * 4);
+        svg.removeAttribute('width');
+        svg.removeAttribute('height');
         svg.style.cssText = 'width:100%; height:auto; display:block; max-width:100%;';
-
         return svg.outerHTML;
     }
 
     // ============================================================
-    // 放大遮罩层
+    // 读取 SVG 的"自然尺寸"
+    // 优先用 width/height 声明；否则用 viewBox；都没有则 800x600
     // ============================================================
-    function openLightbox(svgSource) {
-        if (!svgSource) return;
+    function getSvgNaturalSize(svgEl) {
+        const wAttr = parseFloat(svgEl.getAttribute('width'));
+        const hAttr = parseFloat(svgEl.getAttribute('height'));
+        if (wAttr && hAttr) return { w: wAttr, h: hAttr, source: 'declared' };
 
+        const vb = svgEl.getAttribute('viewBox');
+        if (vb) {
+            const p = vb.split(/[\s,]+/).map(Number);
+            if (p[2] && p[3]) return { w: p[2], h: p[3], source: 'viewBox' };
+        }
+        return { w: 800, h: 600, source: 'default' };
+    }
+
+    // ============================================================
+    // 复制 SVG 为 PNG（2x 分辨率）
+    // ============================================================
+    async function copySvgAsPng(svgEl, scale) {
+        scale = scale || 2;
+        const clone = svgEl.cloneNode(true);
+        const { w, h } = getSvgNaturalSize(clone);
+
+        clone.setAttribute('width', w);
+        clone.setAttribute('height', h);
+        clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+
+        const svgStr = new XMLSerializer().serializeToString(clone);
+        const svgBlob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
+        const url = URL.createObjectURL(svgBlob);
+
+        try {
+            const img = new Image();
+            await new Promise((res, rej) => {
+                img.onload = res;
+                img.onerror = () => rej(new Error('SVG 转图片失败'));
+                img.src = url;
+            });
+
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.ceil(w * scale);
+            canvas.height = Math.ceil(h * scale);
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+            const pngBlob = await new Promise((res, rej) => {
+                canvas.toBlob(b => b ? res(b) : rej(new Error('PNG 生成失败')), 'image/png');
+            });
+
+            await navigator.clipboard.write([ new ClipboardItem({ 'image/png': pngBlob }) ]);
+            return true;
+        } finally {
+            URL.revokeObjectURL(url);
+        }
+    }
+
+    // ============================================================
+    // 放大视图：自动智能倍率 + 滚轮缩放 + 键盘缩放 + 拖拽平移 + 鸟瞰图
+    // ============================================================
+    function openLightbox(svgEl) {
+        const { w, h } = getSvgNaturalSize(svgEl);
+
+        // ---------- 遮罩层 ----------
         const overlay = document.createElement('div');
-        overlay.style.cssText = 'position:fixed; inset:0; z-index:2147483647; background:rgba(15,18,30,0.78); display:flex; align-items:center; justify-content:center; padding:40px; box-sizing:border-box; backdrop-filter:blur(2px);';
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:rgba(15,18,30,0.9);backdrop-filter:blur(3px);display:flex;flex-direction:column;';
 
-        const container = document.createElement('div');
-        container.style.cssText = 'position:relative; background:#fff; border-radius:10px; padding:28px; max-width:95vw; max-height:92vh; overflow:auto; box-shadow:0 12px 48px rgba(0,0,0,0.35);';
+        // ---------- 工具栏 ----------
+        const toolbar = document.createElement('div');
+        toolbar.style.cssText = 'display:flex;align-items:center;gap:8px;padding:10px 16px;background:rgba(255,255,255,0.97);border-bottom:1px solid #e1e4e8;flex-shrink:0;font-size:13px;color:#333;';
 
-        const clone = svgSource.cloneNode(true);
+        const mkBtn = (text, title) => {
+            const b = document.createElement('button');
+            b.textContent = text;
+            if (title) b.title = title;
+            b.style.cssText = 'padding:6px 12px;font-size:13px;cursor:pointer;background:#fff;color:#333;border:1px solid #d0d5dd;border-radius:6px;font-weight:500;user-select:none;transition:background .12s;';
+            b.addEventListener('mouseenter', () => { b.style.background = '#f5f7fa'; });
+            b.addEventListener('mouseleave', () => { b.style.background = '#fff'; });
+            return b;
+        };
+
+        const btnZoomOut = mkBtn('−', '缩小 (-)');
+        const scaleLabel = document.createElement('span');
+        scaleLabel.style.cssText = 'min-width:56px;text-align:center;font-variant-numeric:tabular-nums;color:#555;font-weight:500;';
+        const btnZoomIn = mkBtn('+', '放大 (+)');
+        const btnFit = mkBtn('适应', '适应屏幕 (F)');
+        const btn1x = mkBtn('100%', '原始大小');
+        const btnReset = mkBtn('重置', '重置视图 (0)');
+        const btnToggleMap = mkBtn('鸟瞰图', '显示/隐藏鸟瞰图');
+        btnToggleMap.style.marginLeft = 'auto';
+        const closeBtn = mkBtn('✕ 关闭', '关闭 (ESC)');
+
+        toolbar.appendChild(btnZoomOut);
+        toolbar.appendChild(scaleLabel);
+        toolbar.appendChild(btnZoomIn);
+        toolbar.appendChild(btnFit);
+        toolbar.appendChild(btn1x);
+        toolbar.appendChild(btnReset);
+        toolbar.appendChild(btnToggleMap);
+        toolbar.appendChild(closeBtn);
+        overlay.appendChild(toolbar);
+
+        // ---------- 舞台 ----------
+        const stage = document.createElement('div');
+        stage.style.cssText = 'flex:1;position:relative;overflow:hidden;cursor:grab;user-select:none;';
+        overlay.appendChild(stage);
+
+        // ---------- SVG 包装 ----------
+        const svgWrap = document.createElement('div');
+        svgWrap.style.cssText = 'position:absolute;left:0;top:0;transform-origin:0 0;will-change:transform;background:#fff;box-shadow:0 4px 24px rgba(0,0,0,0.25);';
+
+        const clone = svgEl.cloneNode(true);
         clone.removeAttribute('width');
         clone.removeAttribute('height');
-        clone.style.cssText = 'width:100%; max-width:1600px; height:auto; display:block;';
-        container.appendChild(clone);
+        clone.style.cssText = `width:${w}px;height:${h}px;display:block;`;
+        svgWrap.appendChild(clone);
+        stage.appendChild(svgWrap);
 
-        const closeBtn = document.createElement('div');
-        closeBtn.setAttribute('role', 'button');
-        closeBtn.textContent = '✕';
-        closeBtn.style.cssText = 'position:absolute; top:-14px; right:-14px; width:32px; height:32px; line-height:32px; text-align:center; background:#fff; border-radius:50%; cursor:pointer; font-size:16px; color:#555; box-shadow:0 2px 10px rgba(0,0,0,0.25); user-select:none;';
-        closeBtn.addEventListener('mouseenter', () => { closeBtn.style.background = '#f2f5ff'; closeBtn.style.color = '#4a6cf7'; });
-        closeBtn.addEventListener('mouseleave', () => { closeBtn.style.background = '#fff'; closeBtn.style.color = '#555'; });
+        // ---------- 鸟瞰图 ----------
+        const mmW = 180, mmH = 130;
+        const minimap = document.createElement('div');
+        minimap.style.cssText = `position:absolute;right:16px;bottom:16px;width:${mmW}px;height:${mmH}px;background:rgba(255,255,255,0.98);border:1px solid #d0d5dd;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,0.18);overflow:hidden;z-index:10;cursor:pointer;`;
 
-        overlay.appendChild(container);
-        overlay.appendChild(closeBtn);
-        document.body.appendChild(overlay);
+        const mmSvgWrap = document.createElement('div');
+        mmSvgWrap.style.cssText = 'position:absolute;left:0;top:0;transform-origin:0 0;pointer-events:none;';
+        const mmClone = svgEl.cloneNode(true);
+        mmClone.removeAttribute('width');
+        mmClone.removeAttribute('height');
+        mmClone.style.cssText = `width:${w}px;height:${h}px;display:block;`;
+        mmSvgWrap.appendChild(mmClone);
+        minimap.appendChild(mmSvgWrap);
 
+        const mmViewport = document.createElement('div');
+        mmViewport.style.cssText = 'position:absolute;border:1.5px solid #4a6cf7;background:rgba(74,108,247,0.14);pointer-events:none;border-radius:2px;box-sizing:border-box;';
+        minimap.appendChild(mmViewport);
+        overlay.appendChild(minimap);
+
+        // ---------- 状态 ----------
+        let scale = 1;
+        let offsetX = 0;
+        let offsetY = 0;
+        const MIN_S = 0.08, MAX_S = 20;
+
+        // 鸟瞰图映射参数
+        let mmScale = 1, mmOffX = 0, mmOffY = 0;
+
+        function fitMinimap() {
+            const pad = 6;
+            const sx = (mmW - pad * 2) / w;
+            const sy = (mmH - pad * 2) / h;
+            mmScale = Math.min(sx, sy);
+            mmOffX = (mmW - w * mmScale) / 2;
+            mmOffY = (mmH - h * mmScale) / 2;
+            mmSvgWrap.style.transform = `translate(${mmOffX}px,${mmOffY}px) scale(${mmScale})`;
+        }
+
+        function updateMinimapViewport() {
+            const sw = stage.clientWidth;
+            const sh = stage.clientHeight;
+            const x0 = (-offsetX) / scale;
+            const y0 = (-offsetY) / scale;
+            const x1 = (sw - offsetX) / scale;
+            const y1 = (sh - offsetY) / scale;
+
+            const mx0 = mmOffX + x0 * mmScale;
+            const my0 = mmOffY + y0 * mmScale;
+            const mx1 = mmOffX + x1 * mmScale;
+            const my1 = mmOffY + y1 * mmScale;
+
+            // 超界就裁剪到小地图范围内
+            const cx0 = Math.max(0, mx0);
+            const cy0 = Math.max(0, my0);
+            const cx1 = Math.min(mmW, mx1);
+            const cy1 = Math.min(mmH, my1);
+
+            if (cx1 <= cx0 || cy1 <= cy0) {
+                mmViewport.style.display = 'none';
+            } else {
+                mmViewport.style.display = 'block';
+                mmViewport.style.left = cx0 + 'px';
+                mmViewport.style.top = cy0 + 'px';
+                mmViewport.style.width = (cx1 - cx0) + 'px';
+                mmViewport.style.height = (cy1 - cy0) + 'px';
+            }
+        }
+
+        function applyTransform() {
+            svgWrap.style.transform = `translate(${offsetX}px,${offsetY}px) scale(${scale})`;
+            scaleLabel.textContent = Math.round(scale * 100) + '%';
+            updateMinimapViewport();
+        }
+
+        // 以舞台坐标 (cx, cy) 为中心缩放
+        function setScale(newScale, cx, cy) {
+            newScale = Math.min(MAX_S, Math.max(MIN_S, newScale));
+            offsetX = cx - (newScale / scale) * (cx - offsetX);
+            offsetY = cy - (newScale / scale) * (cy - offsetY);
+            scale = newScale;
+            applyTransform();
+        }
+
+        function fitToScreen() {
+            const sw = stage.clientWidth - 40;
+            const sh = stage.clientHeight - 40;
+            scale = Math.min(sw / w, sh / h, MAX_S);
+            offsetX = (stage.clientWidth - w * scale) / 2;
+            offsetY = (stage.clientHeight - h * scale) / 2;
+            applyTransform();
+        }
+
+        function resetView() {
+            // 智能初始：优先 2x；装不下就取能放进屏幕的最大整数倍（最小 1x）
+            const availW = stage.clientWidth - 40;
+            const availH = stage.clientHeight - 40;
+            let s = 2;
+            if (w * s > availW || h * s > availH) {
+                s = Math.max(1, Math.min(
+                    Math.floor(availW / w) || 1,
+                    Math.floor(availH / h) || 1
+                ));
+            }
+            scale = s;
+            offsetX = (stage.clientWidth - w * scale) / 2;
+            offsetY = (stage.clientHeight - h * scale) / 2;
+            applyTransform();
+        }
+
+        // ---------- 统一拖拽处理 ----------
+        let dragMode = null; // 'pan' | 'minimap'
+        let dragStartX = 0, dragStartY = 0;
+        let dragStartOffX = 0, dragStartOffY = 0;
+
+        function onMouseMove(e) {
+            if (dragMode === 'pan') {
+                offsetX = dragStartOffX + (e.clientX - dragStartX);
+                offsetY = dragStartOffY + (e.clientY - dragStartY);
+                applyTransform();
+            } else if (dragMode === 'minimap') {
+                jumpToMinimapPoint(e.clientX, e.clientY);
+            }
+        }
+
+        function onMouseUp() {
+            if (dragMode) {
+                dragMode = null;
+                stage.style.cursor = 'grab';
+            }
+        }
+
+        // 舞台拖拽
+        stage.addEventListener('mousedown', (e) => {
+            if (e.button !== 0) return;
+            dragMode = 'pan';
+            dragStartX = e.clientX;
+            dragStartY = e.clientY;
+            dragStartOffX = offsetX;
+            dragStartOffY = offsetY;
+            stage.style.cursor = 'grabbing';
+            e.preventDefault();
+        });
+
+        // 鸟瞰图拖拽 / 点击
+        function jumpToMinimapPoint(clientX, clientY) {
+            const rect = minimap.getBoundingClientRect();
+            const mx = clientX - rect.left;
+            const my = clientY - rect.top;
+            const svgX = (mx - mmOffX) / mmScale;
+            const svgY = (my - mmOffY) / mmScale;
+            offsetX = stage.clientWidth / 2 - svgX * scale;
+            offsetY = stage.clientHeight / 2 - svgY * scale;
+            applyTransform();
+        }
+
+        minimap.addEventListener('mousedown', (e) => {
+            if (e.button !== 0) return;
+            dragMode = 'minimap';
+            jumpToMinimapPoint(e.clientX, e.clientY);
+            e.preventDefault();
+            e.stopPropagation();
+        });
+
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+
+        // ---------- 滚轮缩放 ----------
+        stage.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const rect = stage.getBoundingClientRect();
+            const cx = e.clientX - rect.left;
+            const cy = e.clientY - rect.top;
+            // deltaY 正 → 缩小；负 → 放大。用指数曲线保证手感平滑
+            const factor = Math.exp(-e.deltaY * 0.0018);
+            setScale(scale * factor, cx, cy);
+        }, { passive: false });
+
+        // ---------- 键盘 ----------
+        function onKey(e) {
+            // 避免在输入框中触发
+            const t = e.target;
+            if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+
+            const cx = stage.clientWidth / 2;
+            const cy = stage.clientHeight / 2;
+
+            switch (e.key) {
+                case 'Escape':
+                    e.preventDefault(); close(); break;
+                case '+': case '=':
+                    e.preventDefault(); setScale(scale * 1.25, cx, cy); break;
+                case '-': case '_':
+                    e.preventDefault(); setScale(scale / 1.25, cx, cy); break;
+                case '0':
+                    e.preventDefault(); resetView(); break;
+                case 'f': case 'F':
+                    e.preventDefault(); fitToScreen(); break;
+                case 'ArrowLeft':
+                    e.preventDefault(); offsetX += 40; applyTransform(); break;
+                case 'ArrowRight':
+                    e.preventDefault(); offsetX -= 40; applyTransform(); break;
+                case 'ArrowUp':
+                    e.preventDefault(); offsetY += 40; applyTransform(); break;
+                case 'ArrowDown':
+                    e.preventDefault(); offsetY -= 40; applyTransform(); break;
+            }
+        }
+        document.addEventListener('keydown', onKey);
+
+        // ---------- 工具栏事件 ----------
+        btnZoomIn.addEventListener('click', () => setScale(scale * 1.25, stage.clientWidth / 2, stage.clientHeight / 2));
+        btnZoomOut.addEventListener('click', () => setScale(scale / 1.25, stage.clientWidth / 2, stage.clientHeight / 2));
+        btnFit.addEventListener('click', fitToScreen);
+        btn1x.addEventListener('click', () => setScale(1, stage.clientWidth / 2, stage.clientHeight / 2));
+        btnReset.addEventListener('click', resetView);
+
+        let mapVisible = true;
+        btnToggleMap.addEventListener('click', () => {
+            mapVisible = !mapVisible;
+            minimap.style.display = mapVisible ? 'block' : 'none';
+            btnToggleMap.style.background = mapVisible ? '#fff' : '#eef2ff';
+            btnToggleMap.style.color = mapVisible ? '#333' : '#4a6cf7';
+            btnToggleMap.style.borderColor = mapVisible ? '#d0d5dd' : '#4a6cf7';
+        });
+
+        // ---------- 关闭 ----------
         function close() {
             overlay.remove();
             document.removeEventListener('keydown', onKey);
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
         }
-        function onKey(e) { if (e.key === 'Escape') close(); }
+        closeBtn.addEventListener('click', close);
 
-        overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
-        closeBtn.addEventListener('click', (e) => { e.stopPropagation(); close(); });
-        document.addEventListener('keydown', onKey);
+        // ---------- 挂载并初始化 ----------
+        document.body.appendChild(overlay);
+        fitMinimap();
+        resetView();
     }
 
     // ============================================================
@@ -171,6 +471,7 @@
         const old = document.querySelector('.wireloom-preview-wrap[data-wl-uid="' + uid + '"]');
         if (old) old.remove();
 
+        // 预览按钮
         const previewBtn = document.createElement('div');
         previewBtn.className = 'wireloom-preview-btn ds-button ds-button--borderlessNeutral ds-button--borderless ds-button--capsule ds-button--xs ds-button--icon-relative-m ds-button--min-width';
         previewBtn.setAttribute('role', 'button');
@@ -184,6 +485,7 @@
             </span>
         `;
 
+        // 预览容器
         const previewWrap = document.createElement('div');
         previewWrap.className = 'wireloom-preview-wrap';
         previewWrap.dataset.wlUid = uid;
@@ -196,28 +498,72 @@
         svgArea.className = 'wireloom-svg-area';
         svgArea.style.cssText = 'max-width:100%;';
 
-        const lightboxBtn = document.createElement('div');
-        lightboxBtn.className = 'wireloom-lightbox-btn';
-        lightboxBtn.setAttribute('role', 'button');
-        lightboxBtn.setAttribute('tabindex', '0');
-        lightboxBtn.textContent = '⤢ 放大';
-        lightboxBtn.style.cssText = 'position:absolute; top:8px; right:8px; cursor:pointer; font-size:11px; padding:3px 9px; background:#fff; border:1px solid #d0d5dd; border-radius:4px; color:#4a6cf7; opacity:0.65; display:none; z-index:2; user-select:none; transition:opacity .15s;';
-        lightboxBtn.addEventListener('mouseenter', () => { lightboxBtn.style.opacity = '1'; });
-        lightboxBtn.addEventListener('mouseleave', () => { lightboxBtn.style.opacity = '0.65'; });
+        // 工具条（右上角：复制 / 放大）
+        const actionBar = document.createElement('div');
+        actionBar.className = 'wireloom-action-bar';
+        actionBar.style.cssText = 'position:absolute; top:8px; right:8px; display:none; gap:6px; z-index:2;';
+
+        const mkAction = (text) => {
+            const b = document.createElement('div');
+            b.setAttribute('role', 'button');
+            b.setAttribute('tabindex', '0');
+            b.textContent = text;
+            b.style.cssText = 'cursor:pointer; font-size:11px; padding:3px 9px; background:#fff; border:1px solid #d0d5dd; border-radius:4px; color:#4a6cf7; opacity:0.75; user-select:none; transition:opacity .15s;';
+            b.addEventListener('mouseenter', () => { b.style.opacity = '1'; });
+            b.addEventListener('mouseleave', () => { b.style.opacity = '0.75'; });
+            return b;
+        };
+
+        const copyBtn = mkAction('⎘ 复制');
+        const zoomBtn = mkAction('⤢ 放大');
+        actionBar.appendChild(copyBtn);
+        actionBar.appendChild(zoomBtn);
 
         const errorArea = document.createElement('div');
         errorArea.className = 'wireloom-error-area';
         errorArea.style.cssText = 'display:none; color:#c00; font-size:12px; padding:8px; background:#fff0f0; border-radius:4px; margin-top:8px;';
 
         previewInner.appendChild(svgArea);
-        previewInner.appendChild(lightboxBtn);
+        previewInner.appendChild(actionBar);
         previewInner.appendChild(errorArea);
         previewWrap.appendChild(previewInner);
 
         let rendered = false;
         let isOpen = false;
 
-        lightboxBtn.addEventListener('click', (ev) => {
+        // 复制按钮
+        copyBtn.addEventListener('click', async (ev) => {
+            ev.stopPropagation();
+            ev.preventDefault();
+            const svgEl = svgArea.querySelector('svg');
+            if (!svgEl) return;
+
+            const original = copyBtn.textContent;
+            copyBtn.textContent = '⏳ 复制中…';
+            copyBtn.style.pointerEvents = 'none';
+            try {
+                await copySvgAsPng(svgEl, 2);
+                copyBtn.textContent = '✓ 已复制';
+                copyBtn.style.color = '#1a9e5a';
+                setTimeout(() => {
+                    copyBtn.textContent = original;
+                    copyBtn.style.color = '#4a6cf7';
+                }, 1400);
+            } catch (e) {
+                console.error('[DeepSeek Wireloom] 复制失败:', e);
+                copyBtn.textContent = '✗ 失败';
+                copyBtn.style.color = '#c00';
+                setTimeout(() => {
+                    copyBtn.textContent = original;
+                    copyBtn.style.color = '#4a6cf7';
+                }, 1400);
+            } finally {
+                copyBtn.style.pointerEvents = 'auto';
+            }
+        });
+
+        // 放大按钮
+        zoomBtn.addEventListener('click', (ev) => {
             ev.stopPropagation();
             ev.preventDefault();
             const svgEl = svgArea.querySelector('svg');
@@ -234,7 +580,7 @@
 
             const currentSvgArea = currentPreview.querySelector('.wireloom-svg-area');
             const currentErrorArea = currentPreview.querySelector('.wireloom-error-area');
-            const currentLightboxBtn = currentPreview.querySelector('.wireloom-lightbox-btn');
+            const currentActionBar = currentPreview.querySelector('.wireloom-action-bar');
 
             if (rendered) {
                 isOpen = !isOpen;
@@ -265,14 +611,13 @@
                 const result = await wl.render('ds-wl-' + uid + '-' + Date.now(), source);
                 if (!result || !result.svg) throw new Error('渲染结果为空');
 
-                // ★ 大画布处理后再放入
                 currentSvgArea.innerHTML = prepareSvg(result.svg);
 
                 rendered = true;
                 isOpen = true;
                 currentPreview.style.display = 'block';
                 currentErrorArea.style.display = 'none';
-                if (currentLightboxBtn) currentLightboxBtn.style.display = 'block';
+                if (currentActionBar) currentActionBar.style.display = 'flex';
                 updateButtonText();
             } catch (e) {
                 console.error('[DeepSeek Wireloom] uid=' + uid + ' 渲染失败:', e);
@@ -284,7 +629,7 @@
                 currentErrorArea.style.display = 'block';
                 currentPreview.style.display = 'block';
                 isOpen = true;
-                if (currentLightboxBtn) currentLightboxBtn.style.display = 'none';
+                if (currentActionBar) currentActionBar.style.display = 'none';
                 updateButtonText('预览');
             } finally {
                 previewBtn.style.opacity = '1';
@@ -316,7 +661,6 @@
             if (!isInViewport(container)) return;
             if (!isWireloomBlock(container)) return;
             injectPreviewButton(container);
-            // console.log('[DeepSeek Wireloom] 注入按钮 uid=' + (container.dataset.wlUid || '?'));
         }, 400);
         timers.set(container, t);
     }
@@ -390,7 +734,6 @@
         });
 
         scanViewport();
-        // console.log('[DeepSeek Wireloom] 脚本已启动');
     }
 
     if (document.body) setupObserver();
