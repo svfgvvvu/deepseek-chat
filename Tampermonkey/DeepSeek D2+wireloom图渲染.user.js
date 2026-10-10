@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DeepSeek D2+wireloom图渲染
 // @namespace    https://github.com/svfgvvvu/deepseek-chat
-// @version      3.3.1
+// @version      3.3.2
 // @description  为 AI Chat 中的 d2 / wireloom 代码块提供手动/自动渲染切换、分组对比、复制图片、放大查看
 // @author       zhuang.wang
 // @match        https://chat.deepseek.com/*
@@ -553,13 +553,14 @@
             applyTransform();
         }
 
+        // ---------- 修复：智能默认缩放 ----------
+        // 小图最多放大到 2x；大图自动缩到适配屏幕，绝不溢出
         function resetView() {
-            const availW = stage.clientWidth - 40, availH = stage.clientHeight - 40;
-            let s = 2;
-            if (w * s > availW || h * s > availH) {
-                s = Math.max(1, Math.min(Math.floor(availW / w) || 1, Math.floor(availH / h) || 1));
-            }
-            scale = s;
+            const availW = Math.max(1, stage.clientWidth - 40);
+            const availH = Math.max(1, stage.clientHeight - 40);
+            const fitScale = Math.min(availW / w, availH / h);
+            const target = Math.min(2, fitScale);
+            scale = Math.min(MAX_S, Math.max(MIN_S, target));
             offsetX = (stage.clientWidth - w * scale) / 2;
             offsetY = (stage.clientHeight - h * scale) / 2;
             applyTransform();
@@ -1328,7 +1329,7 @@
         return;
     }
 
-    // ---------- IntersectionObserver：视口进入检测（替代 scroll 扫描）----------
+    // ---------- IntersectionObserver ----------
     const observedBlocks = new WeakSet();
     let blockObserver = null;
 
@@ -1350,21 +1351,17 @@
         ensureBlockObserver().observe(block);
     }
 
-    // ---------- 调度：快路径 + 慢路径 ----------
+    // ---------- 调度 ----------
     function scheduleProcess(block, forceRecheck) {
-        // 快路径：wrap 存在且哈希已记录 → 不需要再走一遍源码提取 / 哈希计算
-        // （forceRecheck = true 时强制复查，用于 MutationObserver 捕获内容更新）
         if (!forceRecheck
             && block.dataset.dsHash
             && block.querySelector(':scope > .ds-graph-wrap')) {
             return;
         }
 
-        // 慢路径：需要重新确认语言和内容
         const lang = adapter.getLanguage(block);
         if (!RENDERERS[lang]) return;
 
-        // 若已有 wrap 且哈希相同，不必重新注入
         if (block.dataset.dsHash
             && block.querySelector(':scope > .ds-graph-wrap')) {
             const source = adapter.getSource(block);
@@ -1378,7 +1375,6 @@
         const t = setTimeout(() => {
             timers.delete(block);
             if (!block.isConnected) return;
-            // 延迟期间可能已经被处理或已离开 DOM
             if (block.dataset.dsHash
                 && block.querySelector(':scope > .ds-graph-wrap')) {
                 return;
@@ -1392,14 +1388,12 @@
         timers.set(block, t);
     }
 
-    // ---------- 扫描：只负责发现新块并交给 IntersectionObserver ----------
+    // ---------- 扫描 ----------
     function scan() {
         const blocks = adapter.findCodeBlocks(document.body);
         for (const block of blocks) {
             observeBlock(block);
         }
-        // 初始化时 IntersectionObserver 会立即对已在视口内的块触发回调，
-        // 后续进入视口的块也会触发，无需在这里手动调度。
         updateFAB();
     }
 
@@ -1410,7 +1404,7 @@
         requestAnimationFrame(() => { scanScheduled = false; scan(); });
     }
 
-    // ---------- MutationObserver：内容更新与新增块 ----------
+    // ---------- MutationObserver ----------
     function getBlockAncestor(target) {
         const el = target.nodeType === Node.TEXT_NODE ? target.parentElement : target;
         if (!el || !el.closest) return null;
@@ -1427,7 +1421,6 @@
                 if (mutation.type === 'characterData' || mutation.type === 'childList') {
                     const block = getBlockAncestor(mutation.target);
                     if (block && isInViewport(block, 500)) {
-                        // forceRecheck：让 scheduleProcess 重新计算内容哈希，检测真正的更新
                         scheduleProcess(block, true);
                     }
                 }
