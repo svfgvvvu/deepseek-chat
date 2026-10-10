@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         DeepSeek D2+wireloom图渲染
 // @namespace    https://github.com/svfgvvvu/deepseek-chat
-// @version      3.1.3
-// @description  为 AI Chat 中的 d2 / wireloom 代码块自动渲染、分组对比、复制图片、放大查看
+// @version      3.3.0
+// @description  为 AI Chat 中的 d2 / wireloom 代码块提供手动/自动渲染切换、分组对比、复制图片、放大查看
 // @author       zhuang.wang
 // @match        https://chat.deepseek.com/*
 // @grant        GM_xmlhttpRequest
@@ -22,12 +22,20 @@
     // ============================================================
     // 配置
     // ============================================================
-    const AUTO_RENDER = true;
+    const AUTO_RENDER = false;    // 默认模式（首次安装/清除存储时生效）；可在 FAB 里随时切换
     const INJECT_DELAY = 300;
     const CACHE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
     const MAX_CACHE = 10;         // 最多缓存 10 张已渲染的图
     const TAG = '[DS-Graph]';
     function error(...a) { console.error(TAG, ...a); }
+
+    // 当前生效的渲染模式（持久化到 GM 存储）
+    let currentAutoRender = (() => {
+        try {
+            const v = GM_getValue('ds_graph_auto_render', null);
+            return v === null ? AUTO_RENDER : !!v;
+        } catch (e) { return AUTO_RENDER; }
+    })();
 
     // ============================================================
     // 工具函数
@@ -326,12 +334,10 @@
 
     // ============================================================
     // 缓存淘汰：最多保留 MAX_CACHE 张已渲染图
-    // 策略：优先移除"不在视口内且渲染最早"的
     // ============================================================
-    const renderHistory = [];   // [{ block, ts }]
+    const renderHistory = [];
 
     function enforceCacheLimit() {
-        // 先清理已不在 DOM 中的
         for (let i = renderHistory.length - 1; i >= 0; i--) {
             if (!renderHistory[i].block.isConnected) {
                 renderHistory.splice(i, 1);
@@ -339,7 +345,6 @@
         }
 
         while (renderHistory.length > MAX_CACHE) {
-            // 找第一个不在视口内的（最早渲染的优先）
             let removeIdx = -1;
             for (let i = 0; i < renderHistory.length; i++) {
                 if (!isInViewport(renderHistory[i].block, 0)) {
@@ -347,22 +352,19 @@
                     break;
                 }
             }
-            // 都在视口内 → 暂时超限，等用户滚动后再淘汰
             if (removeIdx === -1) break;
 
             const item = renderHistory[removeIdx];
             renderHistory.splice(removeIdx, 1);
 
-            // 移除 DOM 中的 wrap 和 toggle，保留 dsHash
-            // 这样用户滚动回来时，scan 会重新注入
             const block = item.block;
             block.querySelectorAll(':scope > .ds-graph-wrap').forEach(el => el.remove());
             block.querySelectorAll('.ds-graph-toggle-btn').forEach(el => el.remove());
+            // 保留 dsHash：wrap 被移除但内容未变，scan 会重新注入
         }
     }
 
     function touchRenderHistory(block) {
-        // 已存在则移到末尾（最近使用）
         const idx = renderHistory.findIndex(x => x.block === block);
         if (idx >= 0) renderHistory.splice(idx, 1);
         renderHistory.push({ block, ts: Date.now() });
@@ -378,7 +380,6 @@
         }
         if (!Array.isArray(graphList) || graphList.length === 0) return;
 
-        // 索引越界兜底
         let idx = currentIndex || 0;
         if (idx < 0 || idx >= graphList.length) idx = 0;
 
@@ -898,10 +899,101 @@
     }
 
     // ============================================================
-    // UI: FAB（带 debounce）
+    // UI: FAB 悬浮控制栈（模式切换 / 全部渲染 / 对比）
     // ============================================================
-    let fabEl = null;
+    let fabStackEl = null;
+    let fabModeEl = null;
+    let fabRenderAllEl = null;
+    let fabCompareEl = null;
     let fabUpdateScheduled = false;
+
+    function ensureFabStack() {
+        if (fabStackEl && fabStackEl.isConnected) return fabStackEl;
+        fabStackEl = document.createElement('div');
+        fabStackEl.style.cssText = 'position:fixed;right:24px;bottom:24px;z-index:2147483646;display:flex;flex-direction:column;gap:8px;align-items:flex-end;pointer-events:none;';
+        document.body.appendChild(fabStackEl);
+        return fabStackEl;
+    }
+
+    function cleanupFabStack() {
+        if (!fabStackEl) return;
+        if (fabStackEl.children.length === 0) {
+            fabStackEl.remove();
+            fabStackEl = null;
+        }
+    }
+
+    function ensureModeFab() {
+        if (fabModeEl && fabModeEl.isConnected) return fabModeEl;
+        fabModeEl = document.createElement('div');
+        fabModeEl.setAttribute('role', 'button');
+        fabModeEl.setAttribute('tabindex', '0');
+        fabModeEl.style.cssText = 'pointer-events:auto;cursor:pointer;padding:9px 14px;border-radius:20px;font-size:12px;font-weight:600;user-select:none;transition:transform .15s,background .15s,color .15s,border-color .15s;border:1px solid #4a6cf7;background:#fff;color:#4a6cf7;box-shadow:0 4px 14px rgba(74,108,247,0.22);white-space:nowrap;';
+        fabModeEl.addEventListener('mouseenter', () => { fabModeEl.style.transform = 'translateY(-1px)'; });
+        fabModeEl.addEventListener('mouseleave', () => { fabModeEl.style.transform = 'translateY(0)'; });
+        fabModeEl.addEventListener('click', () => setAutoRender(!currentAutoRender));
+        fabModeEl.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setAutoRender(!currentAutoRender); }
+        });
+        fabModeEl.title = '点击切换自动 / 手动渲染模式';
+        return fabModeEl;
+    }
+
+    function ensureRenderAllFab() {
+        if (fabRenderAllEl && fabRenderAllEl.isConnected) return fabRenderAllEl;
+        fabRenderAllEl = document.createElement('div');
+        fabRenderAllEl.setAttribute('role', 'button');
+        fabRenderAllEl.setAttribute('tabindex', '0');
+        fabRenderAllEl.style.cssText = 'pointer-events:auto;cursor:pointer;padding:9px 14px;border-radius:20px;font-size:12px;font-weight:600;user-select:none;transition:transform .15s,background .15s;border:1px solid #4a6cf7;background:#fff;color:#4a6cf7;box-shadow:0 4px 14px rgba(74,108,247,0.18);white-space:nowrap;';
+        fabRenderAllEl.addEventListener('mouseenter', () => { fabRenderAllEl.style.background = '#f0f4ff'; fabRenderAllEl.style.transform = 'translateY(-1px)'; });
+        fabRenderAllEl.addEventListener('mouseleave', () => { fabRenderAllEl.style.background = '#fff'; fabRenderAllEl.style.transform = 'translateY(0)'; });
+        fabRenderAllEl.addEventListener('click', () => {
+            const list = Array.from(document.querySelectorAll('.ds-graph-manual-placeholder'));
+            for (const ph of list) {
+                if (ph.isConnected) ph.click();
+            }
+        });
+        fabRenderAllEl.title = '渲染当前页面上所有待渲染的图';
+        return fabRenderAllEl;
+    }
+
+    function ensureCompareFab() {
+        if (fabCompareEl && fabCompareEl.isConnected) return fabCompareEl;
+        fabCompareEl = document.createElement('div');
+        fabCompareEl.setAttribute('role', 'button');
+        fabCompareEl.setAttribute('tabindex', '0');
+        fabCompareEl.style.cssText = 'pointer-events:auto;cursor:pointer;background:linear-gradient(135deg,#4a6cf7,#e87e04);color:#fff;padding:12px 18px;border-radius:24px;font-size:13px;font-weight:600;box-shadow:0 6px 20px rgba(74,108,247,0.35);user-select:none;transition:transform .15s,box-shadow .15s;display:flex;align-items:center;gap:8px;white-space:nowrap;';
+        fabCompareEl.addEventListener('mouseenter', () => {
+            fabCompareEl.style.transform = 'translateY(-2px)';
+            fabCompareEl.style.boxShadow = '0 8px 26px rgba(74,108,247,0.45)';
+        });
+        fabCompareEl.addEventListener('mouseleave', () => {
+            fabCompareEl.style.transform = 'translateY(0)';
+            fabCompareEl.style.boxShadow = '0 6px 20px rgba(74,108,247,0.35)';
+        });
+        fabCompareEl.addEventListener('click', () => {
+            const list = collectRenderedGraphs();
+            if (list.length >= 2) openCompareView(list);
+        });
+        fabCompareEl.title = '打开对比视图';
+        return fabCompareEl;
+    }
+
+    function setAutoRender(value) {
+        if (currentAutoRender === value) return;
+        currentAutoRender = !!value;
+        try { GM_setValue('ds_graph_auto_render', currentAutoRender); } catch (e) {}
+
+        if (currentAutoRender) {
+            // 手动 → 自动：立即触发所有占位符渲染
+            const placeholders = document.querySelectorAll('.ds-graph-manual-placeholder');
+            for (const ph of placeholders) {
+                if (ph.isConnected) ph.click();
+            }
+        }
+        // 自动 → 手动：已渲染的图保留，新的块由 injectPreviewCard 走占位符逻辑
+        updateFAB();
+    }
 
     function updateFAB() {
         if (fabUpdateScheduled) return;
@@ -913,61 +1005,98 @@
     }
 
     function doUpdateFAB() {
+        if (!document.body) return;
+        ensureFabStack();
+
         const graphs = collectRenderedGraphs();
+        const placeholders = document.querySelectorAll('.ds-graph-manual-placeholder');
 
-        if (graphs.length < 2) {
-            if (fabEl) { fabEl.remove(); fabEl = null; }
-            return;
+        // 页面上是否存在 d2 / wireloom 代码块
+        let hasGraphBlocks = false;
+        if (adapter) {
+            const blocks = adapter.findCodeBlocks(document.body);
+            for (const b of blocks) {
+                const lang = adapter.getLanguage(b);
+                if (RENDERERS[lang]) { hasGraphBlocks = true; break; }
+            }
+        }
+        const hasAnything = hasGraphBlocks || graphs.length > 0 || placeholders.length > 0;
+
+        // ---- 模式切换按钮 ----
+        if (hasAnything) {
+            ensureModeFab();
+            const modeText = currentAutoRender ? '⚡ 自动渲染' : '✋ 手动渲染';
+            if (fabModeEl.textContent !== modeText) fabModeEl.textContent = modeText;
+            if (currentAutoRender) {
+                fabModeEl.style.background = '#10b981';
+                fabModeEl.style.color = '#fff';
+                fabModeEl.style.borderColor = '#10b981';
+            } else {
+                fabModeEl.style.background = '#fff';
+                fabModeEl.style.color = '#4a6cf7';
+                fabModeEl.style.borderColor = '#4a6cf7';
+            }
+        } else if (fabModeEl) {
+            fabModeEl.remove();
+            fabModeEl = null;
         }
 
-        const groups = groupByType(graphs);
-        const typeKeys = Object.keys(groups);
-
-        if (!fabEl) {
-            fabEl = document.createElement('div');
-            fabEl.style.cssText = 'position:fixed;right:24px;bottom:24px;z-index:2147483646;cursor:pointer;background:linear-gradient(135deg,#4a6cf7,#e87e04);color:#fff;padding:12px 18px;border-radius:24px;font-size:13px;font-weight:600;box-shadow:0 6px 20px rgba(74,108,247,0.35);user-select:none;transition:transform .15s,box-shadow .15s;display:flex;align-items:center;gap:8px;';
-            fabEl.addEventListener('mouseenter', () => {
-                fabEl.style.transform = 'translateY(-2px)';
-                fabEl.style.boxShadow = '0 8px 26px rgba(74,108,247,0.45)';
-            });
-            fabEl.addEventListener('mouseleave', () => {
-                fabEl.style.transform = 'translateY(0)';
-                fabEl.style.boxShadow = '0 6px 20px rgba(74,108,247,0.35)';
-            });
-            fabEl.addEventListener('click', () => {
-                const list = collectRenderedGraphs();
-                if (list.length >= 2) openCompareView(list);
-            });
-            document.body.appendChild(fabEl);
+        // ---- 全部渲染按钮 ----
+        if (!currentAutoRender && placeholders.length >= 2) {
+            ensureRenderAllFab();
+            const t = `▶ 全部渲染 (${placeholders.length})`;
+            if (fabRenderAllEl.textContent !== t) fabRenderAllEl.textContent = t;
+        } else if (fabRenderAllEl) {
+            fabRenderAllEl.remove();
+            fabRenderAllEl = null;
         }
 
-        let text;
-        if (typeKeys.length === 1) {
-            const type = typeKeys[0];
-            const name = RENDERERS[type]?.displayName || type;
-            text = `⊞ 对比 ${graphs.length} 张 ${name} 图`;
-        } else {
-            const summary = typeKeys
-                .map(t => {
-                    const name = RENDERERS[t]?.displayName || t;
-                    return `${name}×${groups[t].length}`;
-                })
-                .join(' · ');
-            text = `⊞ 查看 ${graphs.length} 张图（${summary}）`;
+        // ---- 对比按钮 ----
+        if (graphs.length >= 2) {
+            ensureCompareFab();
+            const groups = groupByType(graphs);
+            const typeKeys = Object.keys(groups);
+            let text;
+            if (typeKeys.length === 1) {
+                const type = typeKeys[0];
+                const name = RENDERERS[type]?.displayName || type;
+                text = `⊞ 对比 ${graphs.length} 张 ${name} 图`;
+            } else {
+                const summary = typeKeys
+                    .map(t => {
+                        const name = RENDERERS[t]?.displayName || t;
+                        return `${name}×${groups[t].length}`;
+                    })
+                    .join(' · ');
+                text = `⊞ 查看 ${graphs.length} 张图（${summary}）`;
+            }
+            if (fabCompareEl.textContent !== text) fabCompareEl.textContent = text;
+        } else if (fabCompareEl) {
+            fabCompareEl.remove();
+            fabCompareEl = null;
         }
-        if (fabEl.textContent !== text) fabEl.textContent = text;
+
+        // ---- 排布：模式(最上) → 全部渲染 → 对比(最下) ----
+        if (fabModeEl) fabModeEl.style.order = '1';
+        if (fabRenderAllEl) fabRenderAllEl.style.order = '2';
+        if (fabCompareEl) fabCompareEl.style.order = '3';
+
+        const stack = ensureFabStack();
+        [fabModeEl, fabRenderAllEl, fabCompareEl].forEach(el => {
+            if (el && el.parentNode !== stack) stack.appendChild(el);
+        });
+
+        cleanupFabStack();
     }
 
     // ============================================================
-    // Core: 预览卡片注入
+    // Core: 预览卡片注入（含手动模式）
     // ============================================================
     function injectPreviewCard(block, name, source, adapter) {
         const renderer = RENDERERS[name];
         const accent = renderer.color;
         const hash = name + '|' + simpleHash(source);
 
-        // 关键：只有 wrap 还在 DOM 里且 hash 相同，才短路
-        // 如果 wrap 被缓存淘汰移除，即使 hash 相同也允许重新注入
         const wrapExists = !!block.querySelector(':scope > .ds-graph-wrap');
         if (block.dataset.dsHash === hash && wrapExists) return;
 
@@ -1007,7 +1136,6 @@
         const svgArea = document.createElement('div');
         svgArea.className = 'ds-graph-svg-area';
         svgArea.style.cssText = 'max-width:100%; min-height:80px; display:flex; align-items:center; justify-content:center; cursor:zoom-in;';
-        svgArea.innerHTML = `<span style="color:${accent};font-size:12px;">正在渲染 ${renderer.displayName} 图…</span>`;
 
         const actionBar = document.createElement('div');
         actionBar.className = 'ds-graph-action-bar';
@@ -1036,7 +1164,61 @@
         previewWrap.appendChild(previewInner);
 
         let rendered = false;
+        let rendering = false;
         let visible = true;
+
+        // ---------- 手动模式占位符 ----------
+        function showManualPlaceholder(errMsg) {
+            svgArea.innerHTML = '';
+            const ph = document.createElement('div');
+            ph.className = 'ds-graph-manual-placeholder';
+            ph.setAttribute('role', 'button');
+            ph.setAttribute('tabindex', '0');
+            ph.style.cssText = `display:inline-flex;flex-direction:column;align-items:center;gap:6px;
+                padding:14px 28px;background:#fff;border:1px dashed ${errMsg ? '#e53e3e' : accent};
+                border-radius:6px;cursor:pointer;user-select:none;transition:all .15s;outline:none;`;
+
+            const row = document.createElement('div');
+            row.style.cssText = 'display:flex;align-items:center;gap:8px;';
+
+            const icon = document.createElement('span');
+            icon.textContent = errMsg ? '⚠' : '▶';
+            icon.style.cssText = `color:${errMsg ? '#e53e3e' : accent};font-size:13px;`;
+
+            const text = document.createElement('span');
+            text.textContent = errMsg ? '渲染失败，点击重试' : `点击渲染 ${renderer.displayName} 图`;
+            text.style.cssText = `color:${errMsg ? '#e53e3e' : accent};font-size:13px;font-weight:500;`;
+
+            row.append(icon, text);
+            ph.appendChild(row);
+
+            if (errMsg) {
+                const msg = document.createElement('div');
+                msg.textContent = errMsg;
+                msg.style.cssText = 'color:#888;font-size:11px;max-width:480px;text-align:center;line-height:1.4;';
+                ph.appendChild(msg);
+            }
+
+            ph.addEventListener('mouseenter', () => { ph.style.background = '#f5f7fa'; ph.style.borderStyle = 'solid'; });
+            ph.addEventListener('mouseleave', () => { ph.style.background = '#fff'; ph.style.borderStyle = 'dashed'; });
+
+            function trigger() {
+                if (rendering || rendered) return;
+                rendering = true;
+                ph.style.pointerEvents = 'none';
+                icon.textContent = '⏳';
+                text.textContent = '正在渲染…';
+                doRender();
+            }
+
+            ph.addEventListener('click', (e) => { e.stopPropagation(); trigger(); });
+            ph.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); trigger(); }
+            });
+
+            svgArea.appendChild(ph);
+            updateFAB();
+        }
 
         function openGraphLightbox() {
             const svgEl = svgArea.querySelector('svg');
@@ -1080,6 +1262,7 @@
         svgArea.addEventListener('click', (ev) => {
             if (ev.target.closest('.ds-graph-action-bar')) return;
             if (ev.target.closest('.ds-graph-error-area')) return;
+            if (ev.target.closest('.ds-graph-manual-placeholder')) return;
             openGraphLightbox();
         });
 
@@ -1098,31 +1281,41 @@
                 const svgString = await renderer.render(engine, source);
                 if (!svgString) throw new Error('渲染结果为空');
                 svgArea.innerHTML = prepareSvg(svgString);
+                svgArea.style.cursor = 'zoom-in';
                 rendered = true;
                 errorArea.style.display = 'none';
                 actionBar.style.display = 'flex';
-                // 记录到缓存历史并执行淘汰
                 touchRenderHistory(block);
                 enforceCacheLimit();
                 updateFAB();
             } catch (e) {
                 error('渲染失败 [' + name + ']:', e);
-                svgArea.innerHTML = '';
-                errorArea.innerHTML = `
-                    <div style="font-weight:bold; margin-bottom:4px;">⚠️ 渲染失败</div>
-                    <div style="margin-bottom:6px;">${e.message}</div>
-                    <div style="color:#888; font-size:11px;">${renderer.displayName} 语法不正确，请让 AI 重新生成。</div>
-                `;
-                errorArea.style.display = 'block';
+                if (currentAutoRender) {
+                    svgArea.innerHTML = '';
+                    errorArea.innerHTML = `
+                        <div style="font-weight:bold; margin-bottom:4px;">⚠️ 渲染失败</div>
+                        <div style="margin-bottom:6px;">${e.message}</div>
+                        <div style="color:#888; font-size:11px;">${renderer.displayName} 语法不正确，请让 AI 重新生成。</div>
+                    `;
+                    errorArea.style.display = 'block';
+                } else {
+                    errorArea.style.display = 'none';
+                    showManualPlaceholder(e.message);
+                }
+            } finally {
+                rendering = false;
             }
         }
 
         toolbar.appendChild(toggleBtn);
         insertTarget.appendChild(previewWrap);
 
-        if (AUTO_RENDER) {
+        if (currentAutoRender) {
             setTimeout(doRender, 50);
+        } else {
+            showManualPlaceholder();
         }
+        updateFAB();
     }
 
     // ============================================================
@@ -1137,7 +1330,6 @@
     }
 
     function scheduleProcess(block) {
-        // 只有 wrap 存在且 hash 相同时才短路
         if (block.querySelector(':scope > .ds-graph-wrap') && block.dataset.dsHash) {
             const lang = adapter.getLanguage(block);
             if (!RENDERERS[lang]) return;
