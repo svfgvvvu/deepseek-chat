@@ -1,13 +1,15 @@
 /* ==UserStyle==
 @name         DeepSeek Chat Custom Theme
 @namespace    https://github.com/svfgvvvu/deepseek-chat
-@version      1.0.1
-@description  为 DeepSeek Chat 定制的主题，包含浅色/深色模式，以及整理模式与心流模式。（修复 1.0.0 中 #root > div 导致浮层被加背景形成遮挡框的问题）
+@version      1.0.2
+@description  为 DeepSeek Chat 定制的主题，包含浅色/深色模式，以及整理模式与心流模式。（1.0.2 修复：用 @-moz-document 限定只作用于 chat.deepseek.com）
 @author       zhuang.wang
 @license      MIT
 @var checkbox flowMode "心流模式（去彩）" 0
 @var checkbox organizeMode "整理模式（暖色点缀）" 0
 ==/UserStyle== */
+
+@-moz-document domain("chat.deepseek.com") {
 
 /* ============================================
    基础变量 — 浅色模式
@@ -202,14 +204,12 @@ button[class*="send"]:hover {
         --ds-bubble-ai-text: #E8E5E1;
     }
 
-    /* 【修复】同步收窄根容器 */
     body,
     main,
     #root {
         background-color: #1C1B1A !important;
         color: #E8E5E1 !important;
     }
-    /* 【修复】同步收窄 header */
     header,
     nav,
     [class*="header"]:not(.ds-virtual-list-visible-items):not(.ds-virtual-list-visible-items *) {
@@ -259,7 +259,6 @@ button[class*="send"]:hover {
     a {
         color: #4A9EFF !important;
     }
-    /* 【修复】同步收窄 sidebar */
     aside,
     [class*="sidebar"]:not(.ds-virtual-list-visible-items):not(.ds-virtual-list-visible-items *) {
         background-color: #22201E !important;
@@ -509,3 +508,5 @@ button[class*="send"]:hover {
         }
     }
 }
+
+} /* ← @-moz-document 结束 */
