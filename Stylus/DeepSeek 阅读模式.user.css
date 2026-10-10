@@ -1,11 +1,14 @@
 /* ==UserStyle==
 @name         DeepSeek Chat Custom Theme
 @namespace    https://github.com/svfgvvvu/deepseek-chat
-@version      1.0.0
-@description  为 DeepSeek Chat 定制的主题，包含浅色/深色模式，以及整理模式与心流模式。
+@version      1.0.1
+@description  为 DeepSeek Chat 定制的主题，包含浅色/深色模式，以及整理模式与心流模式。（修复 1.0.0 中 #root > div 导致浮层被加背景形成遮挡框的问题）
 @author       zhuang.wang
 @license      MIT
+@var checkbox flowMode "心流模式（去彩）" 0
+@var checkbox organizeMode "整理模式（暖色点缀）" 0
 ==/UserStyle== */
+
 /* ============================================
    基础变量 — 浅色模式
    ============================================ */
@@ -27,17 +30,18 @@
     --ds-bubble-ai-text: #2E2C2A;
 }
 
+/* 【修复】只给根容器加背景，不再用 #root > div 波及浮层 */
 body,
-.ds-scroll-area,
 main,
-#root > div {
+#root {
     background-color: #FCFBFA !important;
     color: #2E2C2A !important;
 }
 
+/* 【修复】收窄 header 匹配，排除虚拟列表容器及其后代 */
 header,
 nav,
-[class*="header"] {
+[class*="header"]:not(.ds-virtual-list-visible-items):not(.ds-virtual-list-visible-items *) {
     background-color: #FCFBFA !important;
     border-bottom: 1px solid rgba(0, 0, 0, 0.06) !important;
 }
@@ -119,8 +123,9 @@ a:hover {
     color: #1565D8 !important;
 }
 
+/* 【修复】收窄 sidebar 匹配，排除虚拟列表容器及其后代 */
 aside,
-[class*="sidebar"] {
+[class*="sidebar"]:not(.ds-virtual-list-visible-items):not(.ds-virtual-list-visible-items *) {
     background-color: #F4F2EE !important;
     border-right: 1px solid rgba(0, 0, 0, 0.06) !important;
 }
@@ -197,16 +202,17 @@ button[class*="send"]:hover {
         --ds-bubble-ai-text: #E8E5E1;
     }
 
+    /* 【修复】同步收窄根容器 */
     body,
-    .ds-scroll-area,
     main,
-    #root > div {
+    #root {
         background-color: #1C1B1A !important;
         color: #E8E5E1 !important;
     }
+    /* 【修复】同步收窄 header */
     header,
     nav,
-    [class*="header"] {
+    [class*="header"]:not(.ds-virtual-list-visible-items):not(.ds-virtual-list-visible-items *) {
         background-color: #1C1B1A !important;
         border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
     }
@@ -253,8 +259,9 @@ button[class*="send"]:hover {
     a {
         color: #4A9EFF !important;
     }
+    /* 【修复】同步收窄 sidebar */
     aside,
-    [class*="sidebar"] {
+    [class*="sidebar"]:not(.ds-virtual-list-visible-items):not(.ds-virtual-list-visible-items *) {
         background-color: #22201E !important;
         border-right: 1px solid rgba(255, 255, 255, 0.06) !important;
     }
@@ -284,7 +291,6 @@ button[class*="send"]:hover {
    ============================================ */
 @when organizeMode {
 
-    /* 主交互色改为琥珀 */
     :root {
         --ds-primary: #D97706;
         --ds-primary-hover: #B45309;
@@ -309,7 +315,6 @@ button[class*="send"]:hover {
         background-color: #B45309 !important;
     }
 
-    /* 标题加暖色下划线 */
     h1,
     h2,
     h3 {
@@ -327,7 +332,6 @@ button[class*="send"]:hover {
         background: linear-gradient(90deg, #F59E0B, #FBBF24, transparent);
     }
 
-    /* 加粗文字暖底高亮 */
     strong,
     b {
         background: linear-gradient(transparent 60%, rgba(251, 191, 36, 0.35) 60%);
@@ -335,32 +339,27 @@ button[class*="send"]:hover {
         border-radius: 2px;
     }
 
-    /* 列表标记暖色 */
     ul > li::marker,
     ol > li::marker {
         color: #D97706 !important;
     }
 
-    /* 引用块变暖橙 */
     blockquote {
         border-left-color: #F59E0B !important;
         background-color: rgba(245, 158, 11, 0.06) !important;
     }
 
-    /* 分割线暖色渐变 */
     hr {
         border: none;
         height: 1px;
         background: linear-gradient(90deg, transparent, rgba(217, 119, 6, 0.3), transparent);
     }
 
-    /* 行内代码暖底 */
     :not(pre) > code {
         color: #B45309 !important;
         background-color: rgba(251, 191, 36, 0.15) !important;
     }
 
-    /* 链接暖色 */
     a {
         color: #D97706 !important;
         text-decoration-color: rgba(217, 119, 6, 0.3) !important;
@@ -369,13 +368,11 @@ button[class*="send"]:hover {
         color: #B45309 !important;
     }
 
-    /* 选中高亮更暖 */
     ::selection {
         background-color: rgba(251, 191, 36, 0.4) !important;
         color: #1C1917 !important;
     }
 
-    /* 输入框聚焦暖光 */
     #chat-input:focus,
     textarea[class*="_27c9245"]:focus {
         border-color: #D97706 !important;
@@ -388,7 +385,6 @@ button[class*="send"]:hover {
    ============================================ */
 @when flowMode {
 
-    /* 覆盖所有彩色变量为中性灰 */
     :root {
         --ds-primary: #6B6B6B;
         --ds-primary-hover: #4A4A4A;
@@ -401,7 +397,6 @@ button[class*="send"]:hover {
         --ds-error: #B8B2AA;
     }
 
-    /* 用户气泡变灰 */
     [data-message-author-role="user"] .ds-markdown,
     [data-message-author-role="user"] [class*="bubble"],
     [class*="UserMessage"] {
@@ -410,7 +405,6 @@ button[class*="send"]:hover {
         box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1) !important;
     }
 
-    /* AI 气泡去边框 */
     [data-message-author-role="assistant"] .ds-markdown,
     [data-message-author-role="assistant"] [class*="bubble"],
     [class*="AssistantMessage"] {
@@ -419,7 +413,6 @@ button[class*="send"]:hover {
         box-shadow: none !important;
     }
 
-    /* 所有彩色文字变灰 */
     a {
         color: #6B6B6B !important;
         text-decoration-color: rgba(107, 107, 107, 0.3) !important;
@@ -439,7 +432,6 @@ button[class*="send"]:hover {
         color: #615D59 !important;
     }
 
-    /* 按钮变灰 */
     button[class*="primary"],
     button[class*="send"] {
         background-color: #6B6B6B !important;
@@ -450,13 +442,11 @@ button[class*="send"]:hover {
         background-color: #4A4A4A !important;
     }
 
-    /* 加载动画去彩 */
     [class*="loading"] .dot,
     [class*="typing"] .dot {
         background-color: #B8B2AA !important;
     }
 
-    /* AI 思考光标 — 极弱蓝灰，无渐变 */
     [class*="thinking"] .cursor,
     [class*="streaming"] .cursor {
         background: none !important;
@@ -466,19 +456,16 @@ button[class*="send"]:hover {
         animation: none !important;
     }
 
-    /* 输入框光标保留极弱蓝 */
     #chat-input,
     textarea[class*="_27c9245"] {
         caret-color: #A8C8E8 !important;
     }
 
-    /* 选中高亮变中性 */
     ::selection {
         background-color: rgba(0, 0, 0, 0.1) !important;
         color: #2E2C2A !important;
     }
 
-    /* 深色模式下的心流覆盖 */
     @media (prefers-color-scheme: dark) {
         :root {
             --ds-primary: #8C857D;
