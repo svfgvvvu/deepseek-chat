@@ -1,8 +1,8 @@
 /* ==UserStyle==
 @name         DeepSeek Chat Custom Theme
 @namespace    https://github.com/svfgvvvu/deepseek-chat
-@version      1.0.2
-@description  为 DeepSeek Chat 定制的主题，包含浅色/深色模式，以及整理模式与心流模式。（1.0.2 修复：用 @-moz-document 限定只作用于 chat.deepseek.com）
+@version      1.0.3
+@description  为 DeepSeek Chat 定制的主题，包含浅色/深色模式，以及整理模式与心流模式。（1.0.3 修复：移除 main / #root 背景色，避免侧边栏浮层被误上色形成遮挡框）
 @author       zhuang.wang
 @license      MIT
 @var checkbox flowMode "心流模式（去彩）" 0
@@ -32,10 +32,9 @@
     --ds-bubble-ai-text: #2E2C2A;
 }
 
-/* 【修复】只给根容器加背景，不再用 #root > div 波及浮层 */
-body,
-main,
-#root {
+/* 【修复 1.0.3】只给 body 加背景色，覆盖整个视口。
+   main / #root 内部含浮层与贴边容器，给它们上色会形成遮挡框。 */
+body {
     background-color: #FCFBFA !important;
     color: #2E2C2A !important;
 }
@@ -204,9 +203,8 @@ button[class*="send"]:hover {
         --ds-bubble-ai-text: #E8E5E1;
     }
 
-    body,
-    main,
-    #root {
+    /* 【修复 1.0.3】只给 body 加背景色 */
+    body {
         background-color: #1C1B1A !important;
         color: #E8E5E1 !important;
     }
