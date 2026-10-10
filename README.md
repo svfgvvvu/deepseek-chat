@@ -19,7 +19,9 @@
 │   └── DeepSeek 阅读模式.user.css          # Stylus 用户样式（阅读模式主题）
 └── Tampermonkey/
     ├── DeepSeek D2+wireloom图渲染.user.js  # 油猴脚本（图渲染框架）
-    └── wireloom 配套提示词.md               # Wireloom 生成提示词
+    └── wireloom 提示词.md               # Wireloom 生成提示词
+    └── D2 提示词.md               # D2 生成提示词
+    └── 整合 提示词.md             # D2 + Wireloom 生成提示词
 ```
 
 ---
@@ -344,7 +346,9 @@ AI：[生成符合语法的 wireloom 代码块，脚本自动渲染]
 ## 许可证
 
 - 油猴脚本（`Tampermonkey/DeepSeek D2+wireloom图渲染.user.js`）：MIT
-- Wireloom 提示词（`Tampermonkey/wireloom 配套提示词.md`）：MIT
+- Wireloom 提示词（`Tampermonkey/wireloom 提示词.md`）：MIT
+- D2 提示词（`Tampermonkey/D2 提示词.md`）：MIT
+- 整合提示词（`Tampermonkey/整合提示词.md`）：MIT
 - Stylus 主题样式（`Stylus/DeepSeek 阅读模式.user.css`）：MIT
 - [D2 引擎](https://github.com/terrastruct/d2)（Terrastruct 开发）：MPL-2.0
 - [Wireloom 引擎](https://github.com/StardockCorp/Wireloom)（Stardock 开发）：MIT
