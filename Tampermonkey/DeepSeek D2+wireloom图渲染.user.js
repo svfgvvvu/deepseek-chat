@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DeepSeek D2+wireloom图渲染
 // @namespace    https://github.com/svfgvvvu/deepseek-chat
-// @version      3.1.2
+// @version      3.1.3
 // @description  为 AI Chat 中的 d2 / wireloom 代码块自动渲染、分组对比、复制图片、放大查看
 // @author       zhuang.wang
 // @match        https://chat.deepseek.com/*
@@ -177,11 +177,11 @@
             displayName: 'D2',
             color: '#e87e04',
             urls: [
-                'https://cdn.jsdelivr.net/npm/@terrastruct/d2@0.1.33/+esm',
-                'https://esm.sh/@terrastruct/d2@0.1.33',
+                'https://cdn.jsdelivr.net/npm/@d2lang/d2@0.1.34/+esm',
+                'https://esm.sh/@d2lang/d2@0.1.34',
             ],
-            cacheKey: 'd2_esm_src_v0.1.33',
-            cacheTsKey: 'd2_esm_ts_v0.1.33',
+            cacheKey: 'd2_esm_src_v0.1.34',
+            cacheTsKey: 'd2_esm_ts_v0.1.34',
             getInstance(mod) {
                 const D2 = mod.D2 || mod.default || mod;
                 if (typeof D2 !== 'function') throw new Error('D2 导出不是构造函数');
