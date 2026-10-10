@@ -1,15 +1,18 @@
 // ==UserScript==
 // @name         DeepSeek Wireloom 预览按钮
-// @namespace    https://github.com/StardockCorp/Wireloom
+// @namespace    https://github.com/svfgvvvu/deepseek-chat
 // @version      20.0.0
 // @description  为 DeepSeek Chat 中的 wireloom 代码块添加预览、复制图片、放大查看
-// @author       You
+// @author       zhuang.wang
 // @match        https://chat.deepseek.com/*
 // @grant        none
 // @run-at       document-idle
 // @require      data:text/javascript,var module={exports:{}};var exports=module.exports;
 // @require      https://cdn.jsdelivr.net/npm/wireloom@0.7.0/dist/index.cjs
 // @require      data:text/javascript,window.wireloom=module.exports.default||module.exports;
+// @license      MIT
+// @homepageURL  https://github.com/svfgvvvu/deepseek-chat
+// @supportURL   https://github.com/svfgvvvu/deepseek-chat/issues
 // ==/UserScript==
 
 (function () {
