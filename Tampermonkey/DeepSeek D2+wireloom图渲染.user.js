@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DeepSeek D2+wireloom图渲染
 // @namespace    https://github.com/svfgvvvu/deepseek-chat
-// @version      3.3.0
+// @version      3.3.1
 // @description  为 AI Chat 中的 d2 / wireloom 代码块提供手动/自动渲染切换、分组对比、复制图片、放大查看
 // @author       zhuang.wang
 // @match        https://chat.deepseek.com/*
@@ -22,10 +22,12 @@
     // ============================================================
     // 配置
     // ============================================================
-    const AUTO_RENDER = false;    // 默认模式（首次安装/清除存储时生效）；可在 FAB 里随时切换
-    const INJECT_DELAY = 300;
+    const AUTO_RENDER = false;          // 默认模式（首次安装/清除存储时生效）
+    const INJECT_DELAY_AUTO = 200;      // 自动模式注入延迟
+    const INJECT_DELAY_MANUAL = 30;     // 手动模式注入延迟（只插占位符，几乎零成本）
+    const OBSERVER_ROOT_MARGIN = '500px 0px 500px 0px';   // 视口外提前量
     const CACHE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
-    const MAX_CACHE = 10;         // 最多缓存 10 张已渲染的图
+    const MAX_CACHE = 10;
     const TAG = '[DS-Graph]';
     function error(...a) { console.error(TAG, ...a); }
 
@@ -333,7 +335,7 @@
     }
 
     // ============================================================
-    // 缓存淘汰：最多保留 MAX_CACHE 张已渲染图
+    // 缓存淘汰
     // ============================================================
     const renderHistory = [];
 
@@ -360,7 +362,7 @@
             const block = item.block;
             block.querySelectorAll(':scope > .ds-graph-wrap').forEach(el => el.remove());
             block.querySelectorAll('.ds-graph-toggle-btn').forEach(el => el.remove());
-            // 保留 dsHash：wrap 被移除但内容未变，scan 会重新注入
+            // dsHash 保留：wrap 被移除但内容未变，重新进入视口时会重新注入占位符
         }
     }
 
@@ -899,7 +901,7 @@
     }
 
     // ============================================================
-    // UI: FAB 悬浮控制栈（模式切换 / 全部渲染 / 对比）
+    // UI: FAB 悬浮控制栈
     // ============================================================
     let fabStackEl = null;
     let fabModeEl = null;
@@ -985,13 +987,11 @@
         try { GM_setValue('ds_graph_auto_render', currentAutoRender); } catch (e) {}
 
         if (currentAutoRender) {
-            // 手动 → 自动：立即触发所有占位符渲染
             const placeholders = document.querySelectorAll('.ds-graph-manual-placeholder');
             for (const ph of placeholders) {
                 if (ph.isConnected) ph.click();
             }
         }
-        // 自动 → 手动：已渲染的图保留，新的块由 injectPreviewCard 走占位符逻辑
         updateFAB();
     }
 
@@ -1011,7 +1011,6 @@
         const graphs = collectRenderedGraphs();
         const placeholders = document.querySelectorAll('.ds-graph-manual-placeholder');
 
-        // 页面上是否存在 d2 / wireloom 代码块
         let hasGraphBlocks = false;
         if (adapter) {
             const blocks = adapter.findCodeBlocks(document.body);
@@ -1076,7 +1075,7 @@
             fabCompareEl = null;
         }
 
-        // ---- 排布：模式(最上) → 全部渲染 → 对比(最下) ----
+        // ---- 排布 ----
         if (fabModeEl) fabModeEl.style.order = '1';
         if (fabRenderAllEl) fabRenderAllEl.style.order = '2';
         if (fabCompareEl) fabCompareEl.style.order = '3';
@@ -1329,10 +1328,45 @@
         return;
     }
 
-    function scheduleProcess(block) {
-        if (block.querySelector(':scope > .ds-graph-wrap') && block.dataset.dsHash) {
-            const lang = adapter.getLanguage(block);
-            if (!RENDERERS[lang]) return;
+    // ---------- IntersectionObserver：视口进入检测（替代 scroll 扫描）----------
+    const observedBlocks = new WeakSet();
+    let blockObserver = null;
+
+    function ensureBlockObserver() {
+        if (blockObserver) return blockObserver;
+        blockObserver = new IntersectionObserver((entries) => {
+            for (const entry of entries) {
+                if (entry.isIntersecting) {
+                    scheduleProcess(entry.target, false);
+                }
+            }
+        }, { rootMargin: OBSERVER_ROOT_MARGIN });
+        return blockObserver;
+    }
+
+    function observeBlock(block) {
+        if (observedBlocks.has(block)) return;
+        observedBlocks.add(block);
+        ensureBlockObserver().observe(block);
+    }
+
+    // ---------- 调度：快路径 + 慢路径 ----------
+    function scheduleProcess(block, forceRecheck) {
+        // 快路径：wrap 存在且哈希已记录 → 不需要再走一遍源码提取 / 哈希计算
+        // （forceRecheck = true 时强制复查，用于 MutationObserver 捕获内容更新）
+        if (!forceRecheck
+            && block.dataset.dsHash
+            && block.querySelector(':scope > .ds-graph-wrap')) {
+            return;
+        }
+
+        // 慢路径：需要重新确认语言和内容
+        const lang = adapter.getLanguage(block);
+        if (!RENDERERS[lang]) return;
+
+        // 若已有 wrap 且哈希相同，不必重新注入
+        if (block.dataset.dsHash
+            && block.querySelector(':scope > .ds-graph-wrap')) {
             const source = adapter.getSource(block);
             if (!source) return;
             const newHash = lang + '|' + simpleHash(source);
@@ -1340,40 +1374,34 @@
         }
 
         if (timers.has(block)) clearTimeout(timers.get(block));
+        const delay = currentAutoRender ? INJECT_DELAY_AUTO : INJECT_DELAY_MANUAL;
         const t = setTimeout(() => {
             timers.delete(block);
             if (!block.isConnected) return;
-            if (!isInViewport(block)) return;
+            // 延迟期间可能已经被处理或已离开 DOM
+            if (block.dataset.dsHash
+                && block.querySelector(':scope > .ds-graph-wrap')) {
+                return;
+            }
             const lang = adapter.getLanguage(block);
             if (!RENDERERS[lang]) return;
             const source = adapter.getSource(block);
             if (!source) return;
             injectPreviewCard(block, lang, source, adapter);
-        }, INJECT_DELAY);
+        }, delay);
         timers.set(block, t);
     }
 
+    // ---------- 扫描：只负责发现新块并交给 IntersectionObserver ----------
     function scan() {
         const blocks = adapter.findCodeBlocks(document.body);
-        let hasRelevant = false;
         for (const block of blocks) {
-            if (!isInViewport(block)) continue;
-            const lang = adapter.getLanguage(block);
-            if (!RENDERERS[lang]) continue;
-            scheduleProcess(block);
-            hasRelevant = true;
+            observeBlock(block);
         }
-        if (!hasRelevant) updateFAB();
+        // 初始化时 IntersectionObserver 会立即对已在视口内的块触发回调，
+        // 后续进入视口的块也会触发，无需在这里手动调度。
+        updateFAB();
     }
-
-    let scrollScheduled = false;
-    function onScrollOrResize() {
-        if (scrollScheduled) return;
-        scrollScheduled = true;
-        requestAnimationFrame(() => { scrollScheduled = false; scan(); });
-    }
-    window.addEventListener('scroll', onScrollOrResize, { passive: true });
-    window.addEventListener('resize', onScrollOrResize, { passive: true });
 
     let scanScheduled = false;
     function scheduleScan() {
@@ -1382,6 +1410,7 @@
         requestAnimationFrame(() => { scanScheduled = false; scan(); });
     }
 
+    // ---------- MutationObserver：内容更新与新增块 ----------
     function getBlockAncestor(target) {
         const el = target.nodeType === Node.TEXT_NODE ? target.parentElement : target;
         if (!el || !el.closest) return null;
@@ -1397,9 +1426,9 @@
                 }
                 if (mutation.type === 'characterData' || mutation.type === 'childList') {
                     const block = getBlockAncestor(mutation.target);
-                    if (block && isInViewport(block)) {
-                        const lang = adapter.getLanguage(block);
-                        if (RENDERERS[lang]) scheduleProcess(block);
+                    if (block && isInViewport(block, 500)) {
+                        // forceRecheck：让 scheduleProcess 重新计算内容哈希，检测真正的更新
+                        scheduleProcess(block, true);
                     }
                 }
                 if (needScan) break;
