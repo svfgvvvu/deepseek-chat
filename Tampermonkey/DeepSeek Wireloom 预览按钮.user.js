@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DeepSeek Wireloom 预览按钮
 // @namespace    https://github.com/svfgvvvu/deepseek-chat
-// @version      20.0.0
+// @version      20.0.1
 // @description  为 DeepSeek Chat 中的 wireloom 代码块添加预览、复制图片、放大查看
 // @author       zhuang.wang
 // @match        https://chat.deepseek.com/*
@@ -61,12 +61,42 @@
             .trim();
     }
 
+    // ============================================================
+    // 识别是否为 wireloom 代码块（语义化选择器）
+    // ============================================================
     function isWireloomBlock(container) {
-        const langSpan = container.querySelector('.d813de27');
-        if (langSpan && langSpan.textContent.trim().toLowerCase() === 'wireloom') return true;
-        const codeLangSpan = container.querySelector('.token.code-language');
-        if (codeLangSpan && codeLangSpan.textContent.trim().toLowerCase() === 'wireloom') return true;
+        // 优先：语义化类名 .token.code-language
+        const codeLang = container.querySelector('.token.code-language');
+        if (codeLang) {
+            return codeLang.textContent.trim().toLowerCase() === 'wireloom';
+        }
+        // 兜底：在 banner 里查找文本为 "wireloom" 的 span
+        const banner = container.querySelector('.md-code-block-banner');
+        if (banner) {
+            for (const s of banner.querySelectorAll('span')) {
+                if (s.textContent.trim().toLowerCase() === 'wireloom') return true;
+            }
+        }
         return false;
+    }
+
+    // ============================================================
+    // 查找工具栏容器（含「复制」「下载」按钮的父级）
+    // ============================================================
+    function findToolbar(container) {
+        const banner = container.querySelector('.md-code-block-banner');
+        if (!banner) return null;
+
+        const buttons = Array.from(banner.querySelectorAll('[role="button"]'));
+        if (buttons.length === 0) return banner;
+
+        // 找所有按钮的最近公共父级
+        let el = buttons[0].parentElement;
+        while (el && el !== banner) {
+            if (buttons.every(b => el.contains(b))) return el;
+            el = el.parentElement;
+        }
+        return banner;
     }
 
     function isInViewport(el, margin) {
@@ -95,8 +125,7 @@
     }
 
     // ============================================================
-    // 读取 SVG 的"自然尺寸"
-    // 优先用 width/height 声明；否则用 viewBox；都没有则 800x600
+    // 读取 SVG 的自然尺寸
     // ============================================================
     function getSvgNaturalSize(svgEl) {
         const wAttr = parseFloat(svgEl.getAttribute('width'));
@@ -155,16 +184,14 @@
     }
 
     // ============================================================
-    // 放大视图：自动智能倍率 + 滚轮缩放 + 键盘缩放 + 拖拽平移 + 鸟瞰图
+    // 放大视图
     // ============================================================
     function openLightbox(svgEl) {
         const { w, h } = getSvgNaturalSize(svgEl);
 
-        // ---------- 遮罩层 ----------
         const overlay = document.createElement('div');
         overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:rgba(15,18,30,0.9);backdrop-filter:blur(3px);display:flex;flex-direction:column;';
 
-        // ---------- 工具栏 ----------
         const toolbar = document.createElement('div');
         toolbar.style.cssText = 'display:flex;align-items:center;gap:8px;padding:10px 16px;background:rgba(255,255,255,0.97);border-bottom:1px solid #e1e4e8;flex-shrink:0;font-size:13px;color:#333;';
 
@@ -199,12 +226,10 @@
         toolbar.appendChild(closeBtn);
         overlay.appendChild(toolbar);
 
-        // ---------- 舞台 ----------
         const stage = document.createElement('div');
         stage.style.cssText = 'flex:1;position:relative;overflow:hidden;cursor:grab;user-select:none;';
         overlay.appendChild(stage);
 
-        // ---------- SVG 包装 ----------
         const svgWrap = document.createElement('div');
         svgWrap.style.cssText = 'position:absolute;left:0;top:0;transform-origin:0 0;will-change:transform;background:#fff;box-shadow:0 4px 24px rgba(0,0,0,0.25);';
 
@@ -215,7 +240,7 @@
         svgWrap.appendChild(clone);
         stage.appendChild(svgWrap);
 
-        // ---------- 鸟瞰图 ----------
+        // 鸟瞰图
         const mmW = 180, mmH = 130;
         const minimap = document.createElement('div');
         minimap.style.cssText = `position:absolute;right:16px;bottom:16px;width:${mmW}px;height:${mmH}px;background:rgba(255,255,255,0.98);border:1px solid #d0d5dd;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,0.18);overflow:hidden;z-index:10;cursor:pointer;`;
@@ -234,13 +259,11 @@
         minimap.appendChild(mmViewport);
         overlay.appendChild(minimap);
 
-        // ---------- 状态 ----------
         let scale = 1;
         let offsetX = 0;
         let offsetY = 0;
         const MIN_S = 0.08, MAX_S = 20;
 
-        // 鸟瞰图映射参数
         let mmScale = 1, mmOffX = 0, mmOffY = 0;
 
         function fitMinimap() {
@@ -266,7 +289,6 @@
             const mx1 = mmOffX + x1 * mmScale;
             const my1 = mmOffY + y1 * mmScale;
 
-            // 超界就裁剪到小地图范围内
             const cx0 = Math.max(0, mx0);
             const cy0 = Math.max(0, my0);
             const cx1 = Math.min(mmW, mx1);
@@ -289,7 +311,6 @@
             updateMinimapViewport();
         }
 
-        // 以舞台坐标 (cx, cy) 为中心缩放
         function setScale(newScale, cx, cy) {
             newScale = Math.min(MAX_S, Math.max(MIN_S, newScale));
             offsetX = cx - (newScale / scale) * (cx - offsetX);
@@ -308,7 +329,6 @@
         }
 
         function resetView() {
-            // 智能初始：优先 2x；装不下就取能放进屏幕的最大整数倍（最小 1x）
             const availW = stage.clientWidth - 40;
             const availH = stage.clientHeight - 40;
             let s = 2;
@@ -324,8 +344,7 @@
             applyTransform();
         }
 
-        // ---------- 统一拖拽处理 ----------
-        let dragMode = null; // 'pan' | 'minimap'
+        let dragMode = null;
         let dragStartX = 0, dragStartY = 0;
         let dragStartOffX = 0, dragStartOffY = 0;
 
@@ -346,7 +365,6 @@
             }
         }
 
-        // 舞台拖拽
         stage.addEventListener('mousedown', (e) => {
             if (e.button !== 0) return;
             dragMode = 'pan';
@@ -358,7 +376,6 @@
             e.preventDefault();
         });
 
-        // 鸟瞰图拖拽 / 点击
         function jumpToMinimapPoint(clientX, clientY) {
             const rect = minimap.getBoundingClientRect();
             const mx = clientX - rect.left;
@@ -381,20 +398,16 @@
         document.addEventListener('mousemove', onMouseMove);
         document.addEventListener('mouseup', onMouseUp);
 
-        // ---------- 滚轮缩放 ----------
         stage.addEventListener('wheel', (e) => {
             e.preventDefault();
             const rect = stage.getBoundingClientRect();
             const cx = e.clientX - rect.left;
             const cy = e.clientY - rect.top;
-            // deltaY 正 → 缩小；负 → 放大。用指数曲线保证手感平滑
             const factor = Math.exp(-e.deltaY * 0.0018);
             setScale(scale * factor, cx, cy);
         }, { passive: false });
 
-        // ---------- 键盘 ----------
         function onKey(e) {
-            // 避免在输入框中触发
             const t = e.target;
             if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
 
@@ -424,7 +437,6 @@
         }
         document.addEventListener('keydown', onKey);
 
-        // ---------- 工具栏事件 ----------
         btnZoomIn.addEventListener('click', () => setScale(scale * 1.25, stage.clientWidth / 2, stage.clientHeight / 2));
         btnZoomOut.addEventListener('click', () => setScale(scale / 1.25, stage.clientWidth / 2, stage.clientHeight / 2));
         btnFit.addEventListener('click', fitToScreen);
@@ -440,7 +452,6 @@
             btnToggleMap.style.borderColor = mapVisible ? '#d0d5dd' : '#4a6cf7';
         });
 
-        // ---------- 关闭 ----------
         function close() {
             overlay.remove();
             document.removeEventListener('keydown', onKey);
@@ -449,7 +460,6 @@
         }
         closeBtn.addEventListener('click', close);
 
-        // ---------- 挂载并初始化 ----------
         document.body.appendChild(overlay);
         fitMinimap();
         resetView();
@@ -466,15 +476,12 @@
         }
         const uid = container.dataset.wlUid;
 
-        const toolbar = container.querySelector('.d2a24f03._246a029')
-                     || container.querySelector('.d2a24f03')
-                     || container.querySelector('.md-code-block-banner');
+        const toolbar = findToolbar(container);
         if (!toolbar) return;
 
         const old = document.querySelector('.wireloom-preview-wrap[data-wl-uid="' + uid + '"]');
         if (old) old.remove();
 
-        // 预览按钮
         const previewBtn = document.createElement('div');
         previewBtn.className = 'wireloom-preview-btn ds-button ds-button--borderlessNeutral ds-button--borderless ds-button--capsule ds-button--xs ds-button--icon-relative-m ds-button--min-width';
         previewBtn.setAttribute('role', 'button');
@@ -488,7 +495,6 @@
             </span>
         `;
 
-        // 预览容器
         const previewWrap = document.createElement('div');
         previewWrap.className = 'wireloom-preview-wrap';
         previewWrap.dataset.wlUid = uid;
@@ -501,7 +507,6 @@
         svgArea.className = 'wireloom-svg-area';
         svgArea.style.cssText = 'max-width:100%;';
 
-        // 工具条（右上角：复制 / 放大）
         const actionBar = document.createElement('div');
         actionBar.className = 'wireloom-action-bar';
         actionBar.style.cssText = 'position:absolute; top:8px; right:8px; display:none; gap:6px; z-index:2;';
@@ -534,7 +539,6 @@
         let rendered = false;
         let isOpen = false;
 
-        // 复制按钮
         copyBtn.addEventListener('click', async (ev) => {
             ev.stopPropagation();
             ev.preventDefault();
@@ -565,7 +569,6 @@
             }
         });
 
-        // 放大按钮
         zoomBtn.addEventListener('click', (ev) => {
             ev.stopPropagation();
             ev.preventDefault();
