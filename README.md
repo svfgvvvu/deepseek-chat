@@ -1,11 +1,12 @@
 # DeepSeek Chat 增强工具集
 
-本仓库提供两套针对 DeepSeek Chat 的增强方案，可独立使用，也可搭配使用：
+本仓库提供针对 DeepSeek Chat 的增强方案，可独立使用，也可搭配使用：
 
 | 工具 | 类型 | 作用 |
 |------|------|------|
-| **Tampermonkey 油猴脚本** | 用户脚本 | 在 `wireloom` 代码块工具栏注入「预览」按钮，点击后渲染为 SVG 线框图，并支持放大查看 |
-| **Stylus 阅读模式** | 浏览器扩展样式 | 定制聊天气泡、输入框、代码块、滚动条等视觉元素，内置浅色/深色模式，并提供「整理模式」与「心流模式」两套阅读增强方案 |
+| **D2 + Wireloom 图渲染** | Tampermonkey 油猴脚本 | 自动识别 `d2` / `wireloom` 代码块并就地渲染 SVG，支持多图对比、灯箱放大、复制图片 |
+| **Wireloom 配套提示词** | Markdown 提示词 | 帮助 AI 生成符合 Wireloom 语法的线框图代码，提升一次渲染成功率 |
+| **DeepSeek 阅读模式** | Stylus 用户样式 | 定制聊天气泡、输入框、代码块等视觉元素，内置浅色/深色模式与「整理模式」「心流模式」 |
 
 ---
 
@@ -15,42 +16,68 @@
 .
 ├── README.md
 ├── Stylus/
-│   └── DeepSeek 阅读模式.css          # Stylus 用户样式（阅读模式主题）
+│   └── DeepSeek 阅读模式.user.css          # Stylus 用户样式（阅读模式主题）
 └── Tampermonkey/
-    └── DeepSeek Wireloom 预览按钮.js  # 油猴脚本（Wireloom 渲染）
+    ├── DeepSeek D2+wireloom图渲染.user.js  # 油猴脚本（图渲染框架）
+    └── wireloom 配套提示词.md               # Wireloom 生成提示词
 ```
 
 ---
 
-## 一、Tampermonkey 油猴脚本 — DeepSeek Wireloom 预览按钮
+## 一、Tampermonkey 油猴脚本 — DeepSeek D2 + Wireloom 图渲染
 
 ### 功能说明
 
-DeepSeek Chat 无法直接渲染 SVG，AI 输出的 `wireloom` 代码块只能看到纯文本。本脚本在代码块工具栏注入「预览」按钮，点击后在代码块下方就地渲染 SVG 线框图，并支持复制图片、全屏放大查看。
+DeepSeek Chat 无法直接渲染 `d2` 和 `wireloom` 代码块，只能看到纯文本。本脚本自动识别这两类代码块，在代码块下方就地渲染 SVG，并提供多图对比、灯箱放大、复制图片等能力。
 
-**版本：** 20.0.0
+**版本：** 3.1.2
 **匹配范围：** `https://chat.deepseek.com/*`
-**文件位置：** `Tampermonkey/DeepSeek Wireloom 预览按钮.js`
+**文件位置：** `Tampermonkey/DeepSeek D2+wireloom图渲染.user.js`
+
+### 支持的格式
+
+| 格式 | 用途 | 渲染引擎 | 品牌色 |
+|:---|:---|:---|:---|
+| `d2` | 架构图、流程图、时序图 | [@terrastruct/d2](https://github.com/terrastruct/d2) | 橙黄 `#e87e04` |
+| `wireloom` | UI 线框图、界面草图 | [wireloom](https://github.com/StardockCorp/Wireloom) | 品牌蓝 `#4a6cf7` |
 
 ### 主要特性
 
-- **按需渲染**：点击「预览」才渲染，不干扰正常阅读
-- **流式兼容**：AI 流式输出时自动防抖，内容稳定后才注入按钮
+- **自动渲染**：代码块出现后自动渲染，无需点击
+- **流式兼容**：AI 流式输出时通过 `MutationObserver` + 防抖 + 内容 hash 检测，等代码稳定后才注入
 - **视口懒加载**：只处理滚动到可视区域的代码块，长对话不卡顿
-- **复制图片**：一键将线框图转为 PNG（2 倍分辨率、白底）复制到剪贴板
-- **全屏放大**：支持滚轮缩放、拖拽平移、键盘操作和鸟瞰图导航
-- **错误提示**：语法不正确时显示引擎原始错误，提示让 DeepSeek 按官方语法重新生成
+- **缓存上限**：最多同时保留 10 张渲染图，超出后按「不在视口 + 最早渲染」淘汰
+- **多图对比**：页面有 2 张以上图时，右下角出现对比 FAB；支持按类型分组查看
+- **灯箱放大**：点击图本身或「放大」按钮进入灯箱，支持滚轮缩放、拖拽平移、键盘操作、鸟瞰图导航、多图切换
+- **复制图片**：一键将 SVG 转为 PNG（2 倍分辨率、白底）复制到剪贴板
+- **本地缓存**：渲染引擎的 ESM 源码缓存到本地（7 天有效期），刷新页面无需重新下载
+- **闲时预加载**：页面空闲时静默加载渲染引擎，首次点击几乎无延迟
 
 ### 安装
 
 1. 安装 [Tampermonkey](https://www.tampermonkey.net/) 或 [Violentmonkey](https://violentmonkey.github.io/)
 2. 打开控制面板 → 新建脚本
-3. 将 `Tampermonkey/DeepSeek Wireloom 预览按钮.js` 全部内容粘贴进去，保存
-4. 打开 [chat.deepseek.com](https://chat.deepseek.com/)，脚本自动启动
+3. 将 `Tampermonkey/DeepSeek D2+wireloom图渲染.user.js` 全部内容粘贴进去，保存
+4. 首次安装时会请求「网络」和「存储」权限，点击允许
+5. 打开 [chat.deepseek.com](https://chat.deepseek.com/)，脚本自动启动
 
 ### 使用方式
 
-让 DeepSeek 按以下格式输出（语言标记为 `wireloom`）：
+让 DeepSeek 按以下格式输出即可自动渲染。
+
+**D2 示例（架构图）：**
+
+````markdown
+```d2
+direction: right
+客户端 -> 服务器: 请求
+服务器 -> 数据库: 查询
+数据库 -> 服务器: 结果
+服务器 -> 客户端: 响应
+```
+````
+
+**Wireloom 示例（线框图）：**
 
 ````markdown
 ```wireloom
@@ -66,62 +93,152 @@ window "Sign in":
 ```
 ````
 
-代码块右上角工具栏会出现「预览」按钮：
+### 交互说明
 
-- **点击「预览」** → 代码块下方渲染 SVG，按钮变为「关闭」
-- **再次点击** → 折叠预览
-- **悬停预览区右上角** → 出现「⎘ 复制」「⤢ 放大」
-- **「⎘ 复制」** → 线框图转为 PNG 复制到剪贴板，可直接粘贴到文档
-- **「⤢ 放大」** → 进入全屏视图（见下方操作表）
-- **Esc / 点击背景 / ✕** → 关闭放大视图
+**预览卡片：**
 
-### 放大视图操作
+- 代码块右上角工具栏出现「隐藏图」按钮，点击可折叠/展开预览
+- 悬停预览区右上角 → 出现「⎘ 复制」「⤢ 放大」
+- 点击图本身 → 直接打开灯箱
+
+**多图对比：**
+
+- 页面有 2 张以上图时，右下角出现 FAB
+- 单类型：显示 `⊞ 对比 N 张 D2 图`
+- 多类型：显示 `⊞ 查看 N 张图（D2×2 · Wireloom×1）`
+- 点击进入对比视图，顶部有 tab 切换：
+  - **全部**：按类型分组显示，每组带彩色标题
+  - **D2** / **Wireloom**：仅显示该类型，纯并排对比
+- 列数支持 1 / 2 / 3 切换
+
+**灯箱操作：**
 
 | 操作 | 效果 |
 |:---|:---|
-| **打开时** | 自动智能倍率：优先 2x，装不下就取能放进屏幕的最大整数倍（最小 1x） |
+| **点击图 / 点「⤢ 放大」** | 打开灯箱 |
 | **滚轮** | 以光标位置为中心缩放 |
 | **拖拽画布** | 按住左键平移 |
 | **`+` / `-`** | 以视图中心缩放 |
-| **方向键** | 微调平移 |
 | **`0`** | 重置为默认倍率 |
 | **`F`** | 适应屏幕 |
+| **`←` / `→`** | 多图时切换上一张/下一张；单图时平移 |
+| **`↑` / `↓`** | 平移 |
 | **`ESC`** | 关闭 |
-| **工具栏 `1x / 2x / 4x`** | 一键切换倍率 |
+| **工具栏 `‹ 上一张 / 下一张 ›`** | 多图导航（含循环） |
+| **工具栏 `⎘ 复制图片`** | 当前图转为 PNG 复制到剪贴板 |
 | **鸟瞰图** | 点击跳转、拖拽导航，工具栏可开关 |
+
+### 架构说明
+
+脚本采用分层设计，便于扩展：
+
+```
+┌─ Adapter 层（平台适配）──────────────────┐
+│  识别代码块 / 提取源码 / 定位工具栏         │
+│  新增平台只需注册一个 adapter              │
+└────────────────────────────────────────┘
+┌─ Renderer 层（渲染引擎）─────────────────┐
+│  D2 / Wireloom / 未来 Graphviz...        │
+│  新增格式只需注册一个 renderer            │
+└────────────────────────────────────────┘
+┌─ Core 层（调度与状态）───────────────────┐
+│  hash 计算 / 扫描调度 / 缓存淘汰          │
+└────────────────────────────────────────┘
+┌─ UI 层（展示与交互）─────────────────────┐
+│  预览卡片 / 灯箱 / 对比视图 / FAB         │
+└────────────────────────────────────────┘
+```
+
+**扩展新格式（如 Graphviz）：**
+
+```javascript
+// 在 RENDERERS 里加一个条目即可
+graphviz: {
+    displayName: 'Graphviz',
+    color: '#2e7d32',
+    urls: ['https://cdn.jsdelivr.net/npm/@hpcc-js/wasm@2/+esm'],
+    cacheKey: 'graphviz_esm_src_v2',
+    cacheTsKey: 'graphviz_esm_ts_v2',
+    getInstance(mod) { /* ... */ },
+    async render(engine, source) { /* ... */ },
+}
+```
+
+**扩展新平台（如 ChatGPT）：**
+
+```javascript
+// 在 ADAPTERS 里加一个条目
+{
+    name: 'chatgpt',
+    matches: () => location.hostname === 'chat.openai.com',
+    findCodeBlocks(root) { return root.querySelectorAll('...'); },
+    getLanguage(block) { /* ... */ },
+    getSource(block) { /* ... */ },
+    getToolbar(block) { /* ... */ },
+    getInsertTarget(block) { /* ... */ },
+}
+```
 
 ### 常见问题
 
-**Q：看不到「预览」按钮？**
+**Q：看不到「隐藏图」按钮？**
 
-1. 确认代码块语言标记是 `wireloom`（不是 `wl`、`wireframe`）
-2. 按 F12 查看 Console 是否有 `[DeepSeek Wireloom]` 报错
-3. 检查 CDN 是否可访问：`https://cdn.jsdelivr.net/npm/wireloom@0.7.0/dist/index.cjs`
+1. 确认代码块语言标记是 `d2` 或 `wireloom`
+2. 按 F12 查看 Console 是否有 `[DS-Graph]` 报错
+3. 检查 Tampermonkey 是否已授予「网络」和「存储」权限
 
-**Q：点击预览后显示「渲染失败」？**
+**Q：点击后显示「渲染失败」？**
 
-源码提取成功但 Wireloom 解析失败，通常是语法问题（比如根节点用了 `screen` 而非 `window`、缺少冒号、缩进不规范）。直接让 DeepSeek「按 Wireloom 官方语法重新生成，缩进用两个空格」。
+通常是源码语法问题。让 DeepSeek「按官方语法重新生成」。渲染失败的具体错误会打印在 Console 的 `[DS-Graph]` 日志里。
 
-**Q：预览的 SVG 太小 / 太模糊？**
+**Q：图被移除了，滚动回来又出现？**
 
-预览区按容器宽度自适应缩放，矢量图不会模糊。需要看细节时点击「⤢ 放大」，支持滚轮缩放和拖拽平移。
+这是缓存淘汰机制。脚本最多保留 10 张已渲染的图，超出后按「不在视口 + 最早渲染」淘汰。滚回来时会自动重新渲染。
+
+**Q：如何调整缓存上限？**
+
+编辑脚本里的 `const MAX_CACHE = 10;` 这一行。
 
 ---
 
-## 二、Stylus 用户样式 — DeepSeek 阅读模式
+## 二、Wireloom 配套提示词
+
+### 功能说明
+
+一份给 AI 的提示词模板，帮助 AI 生成符合 Wireloom 官方语法的线框图代码，提升一次渲染成功率。
+
+**文件位置：** `Tampermonkey/wireloom 配套提示词.md`
+
+### 使用方式
+
+在 DeepSeek 对话中先发送提示词内容，让 AI 明确 Wireloom 的语法规范，然后再描述你想要的界面草图。
+
+**示例对话：**
+
+```
+你：[粘贴 wireloom 配套提示词.md 的内容]
+你：帮我画一个电商商品详情页的线框图
+AI：[生成符合语法的 wireloom 代码块，脚本自动渲染]
+```
+
+配合图渲染脚本使用时，AI 生成的 `wireloom` 代码块会被立即渲染成线框图，形成「描述 → 生成 → 预览 → 调整」的快速迭代循环。
+
+---
+
+## 三、Stylus 用户样式 — DeepSeek 阅读模式
 
 ### 功能说明
 
 一份完整的 DeepSeek Chat 配色与阅读增强方案，覆盖聊天气泡、输入框、代码块、引用、滚动条、选中高亮、加载动画等。内置浅色与深色两套基础配色，并额外提供「整理模式」与「心流模式」两套针对长文阅读的优化方案。
 
-**文件位置：** `Stylus/DeepSeek 阅读模式.css`
+**文件位置：** `Stylus/DeepSeek 阅读模式.user.css`
 
 ### 安装
 
 1. 从扩展商店安装 [Stylus](https://chrome.google.com/webstore/detail/stylus/clngdbkpkpeebahjckkjfobafhncgmne)（Chrome / Edge）或 [Firefox Add-ons](https://addons.mozilla.org/firefox/addon/styl-us/)
 2. 点击 Stylus 图标 → **编写新样式**
 3. 「适用网址」填 `https://chat.deepseek.com/*`
-4. 粘贴 `Stylus/DeepSeek 阅读模式.css` 全部内容，保存
+4. 粘贴 `Stylus/DeepSeek 阅读模式.user.css` 全部内容，保存
 
 ### 配色结构
 
@@ -188,6 +305,27 @@ window "Sign in":
 **Q：能否只用主题不用脚本？**
 
 可以。两者完全独立——Stylus 改的是外观，油猴脚本改的是代码块的行为与内容。
+
+---
+
+## 组合使用建议
+
+三套工具可以独立使用，也可以搭配使用，形成完整的工作流：
+
+| 场景 | 推荐组合 |
+|:---|:---|
+| **仅美化界面** | Stylus 阅读模式 |
+| **仅渲染图表** | D2 + Wireloom 图渲染脚本 |
+| **设计草图协作** | 图渲染脚本 + Wireloom 提示词 |
+| **全功能工作流** | 三套全部启用 |
+
+**典型工作流：**
+
+1. 用 Stylus 阅读模式把界面调成「整理模式」，长时间对话不刺眼
+2. 用 Wireloom 提示词让 AI 生成界面草图
+3. 脚本自动渲染成 SVG 线框图，多方案时用对比视图并排查看
+4. 点击放大看细节，复制 PNG 贴到设计文档
+
 ---
 
 ## 兼容性
@@ -197,13 +335,16 @@ window "Sign in":
 | 浏览器 | Chrome 76+ / Firefox 103+ / Edge 79+ / Safari 13+ |
 | 油猴脚本管理器 | Tampermonkey、Violentmonkey、Greasemonkey |
 | Stylus | 任意版本（`@when` 模式需支持条件块的前处理器） |
-| Wireloom 引擎 | v0.7.0（通过 jsDelivr CDN 加载） |
+| D2 引擎 | v0.1.33（通过 jsDelivr / esm.sh CDN 加载） |
+| Wireloom 引擎 | v0.7.0（通过 jsDelivr / esm.sh CDN 加载） |
 | DeepSeek Chat | chat.deepseek.com 最新界面 |
 
 ---
 
 ## 许可证
 
-- 油猴脚本（`Tampermonkey/DeepSeek Wireloom 预览按钮.js`）：MIT
-- Stylus 主题样式（`Stylus/DeepSeek 阅读模式.css`）：MIT
+- 油猴脚本（`Tampermonkey/DeepSeek D2+wireloom图渲染.user.js`）：MIT
+- Wireloom 提示词（`Tampermonkey/wireloom 配套提示词.md`）：MIT
+- Stylus 主题样式（`Stylus/DeepSeek 阅读模式.user.css`）：MIT
+- [D2 引擎](https://github.com/terrastruct/d2)（Terrastruct 开发）：MPL-2.0
 - [Wireloom 引擎](https://github.com/StardockCorp/Wireloom)（Stardock 开发）：MIT
