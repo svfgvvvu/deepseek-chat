@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         DeepSeek D2+wireloom图渲染
 // @namespace    https://github.com/svfgvvvu/deepseek-chat
-// @version      3.3.2
-// @description  为 AI Chat 中的 d2 / wireloom 代码块提供手动/自动渲染切换、分组对比、复制图片、放大查看
+// @version      3.3.3
+// @description  为 AI Chat 中的 d2 / wireloom 代码块提供手动/自动渲染切换、重渲染、分组对比、复制图片、放大查看
 // @author       zhuang.wang
 // @match        https://chat.deepseek.com/*
 // @grant        GM_xmlhttpRequest
@@ -22,16 +22,15 @@
     // ============================================================
     // 配置
     // ============================================================
-    const AUTO_RENDER = false;          // 默认模式（首次安装/清除存储时生效）
-    const INJECT_DELAY_AUTO = 200;      // 自动模式注入延迟
-    const INJECT_DELAY_MANUAL = 30;     // 手动模式注入延迟（只插占位符，几乎零成本）
-    const OBSERVER_ROOT_MARGIN = '500px 0px 500px 0px';   // 视口外提前量
+    const AUTO_RENDER = false;
+    const INJECT_DELAY_AUTO = 200;
+    const INJECT_DELAY_MANUAL = 30;
+    const OBSERVER_ROOT_MARGIN = '500px 0px 500px 0px';
     const CACHE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
     const MAX_CACHE = 10;
     const TAG = '[DS-Graph]';
     function error(...a) { console.error(TAG, ...a); }
 
-    // 当前生效的渲染模式（持久化到 GM 存储）
     let currentAutoRender = (() => {
         try {
             const v = GM_getValue('ds_graph_auto_render', null);
@@ -122,7 +121,7 @@
     }
 
     // ============================================================
-    // Adapter 层：平台适配
+    // Adapter 层
     // ============================================================
     const ADAPTERS = [
         {
@@ -362,7 +361,6 @@
             const block = item.block;
             block.querySelectorAll(':scope > .ds-graph-wrap').forEach(el => el.remove());
             block.querySelectorAll('.ds-graph-toggle-btn').forEach(el => el.remove());
-            // dsHash 保留：wrap 被移除但内容未变，重新进入视口时会重新注入占位符
         }
     }
 
@@ -553,8 +551,7 @@
             applyTransform();
         }
 
-        // ---------- 修复：智能默认缩放 ----------
-        // 小图最多放大到 2x；大图自动缩到适配屏幕，绝不溢出
+        // 智能默认缩放：小图最多放大到 2x；大图自动缩到适配屏幕
         function resetView() {
             const availW = Math.max(1, stage.clientWidth - 40);
             const availH = Math.max(1, stage.clientHeight - 40);
@@ -993,6 +990,13 @@
                 if (ph.isConnected) ph.click();
             }
         }
+
+        // 同步所有已渲染卡片里"重渲染"按钮的可见性
+        const rerenderBtns = document.querySelectorAll('.ds-graph-rerender-btn');
+        for (const btn of rerenderBtns) {
+            btn.style.display = currentAutoRender ? 'none' : '';
+        }
+
         updateFAB();
     }
 
@@ -1090,7 +1094,7 @@
     }
 
     // ============================================================
-    // Core: 预览卡片注入（含手动模式）
+    // Core: 预览卡片注入
     // ============================================================
     function injectPreviewCard(block, name, source, adapter) {
         const renderer = RENDERERS[name];
@@ -1153,8 +1157,13 @@
         };
 
         const copyBtn = mkAction('⎘ 复制');
+        const rerenderBtn = mkAction('↻ 重渲染');
+        rerenderBtn.className = 'ds-graph-rerender-btn';
+        rerenderBtn.title = '重新渲染（源码可能刚刚更新完整）';
         const zoomBtn = mkAction('⤢ 放大');
-        actionBar.append(copyBtn, zoomBtn);
+        actionBar.append(copyBtn, rerenderBtn, zoomBtn);
+        // 初始可见性
+        rerenderBtn.style.display = currentAutoRender ? 'none' : '';
 
         const errorArea = document.createElement('div');
         errorArea.className = 'ds-graph-error-area';
@@ -1254,6 +1263,29 @@
             }
         });
 
+        // ---------- 重渲染（仅手动模式）----------
+        rerenderBtn.addEventListener('click', async (ev) => {
+            ev.stopPropagation(); ev.preventDefault();
+            if (rendering) return;
+
+            // 从源码里重新提取（代码块可能已经更新）
+            const newSource = adapter.getSource(block);
+            if (!newSource) return;
+
+            // 复位状态
+            rendered = false;
+            errorArea.style.display = 'none';
+            actionBar.style.display = 'none';
+            svgArea.innerHTML = `<span style="color:${accent};font-size:12px;">正在渲染 ${renderer.displayName} 图…</span>`;
+
+            // 更新 source 引用
+            source = newSource;
+            // 更新哈希（保持与 dsHash 一致，避免下次扫描重复注入）
+            block.dataset.dsHash = name + '|' + simpleHash(newSource);
+
+            await doRender();
+        });
+
         zoomBtn.addEventListener('click', (ev) => {
             ev.stopPropagation(); ev.preventDefault();
             openGraphLightbox();
@@ -1329,7 +1361,6 @@
         return;
     }
 
-    // ---------- IntersectionObserver ----------
     const observedBlocks = new WeakSet();
     let blockObserver = null;
 
@@ -1351,7 +1382,6 @@
         ensureBlockObserver().observe(block);
     }
 
-    // ---------- 调度 ----------
     function scheduleProcess(block, forceRecheck) {
         if (!forceRecheck
             && block.dataset.dsHash
@@ -1388,7 +1418,6 @@
         timers.set(block, t);
     }
 
-    // ---------- 扫描 ----------
     function scan() {
         const blocks = adapter.findCodeBlocks(document.body);
         for (const block of blocks) {
@@ -1404,7 +1433,6 @@
         requestAnimationFrame(() => { scanScheduled = false; scan(); });
     }
 
-    // ---------- MutationObserver ----------
     function getBlockAncestor(target) {
         const el = target.nodeType === Node.TEXT_NODE ? target.parentElement : target;
         if (!el || !el.closest) return null;
