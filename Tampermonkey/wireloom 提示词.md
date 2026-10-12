@@ -1,5 +1,7 @@
 **Wireloom 输出规范**
 
+更多详情可以参考：https://raw.githubusercontent.com/StardockCorp/Wireloom/refs/heads/main/AGENTS.md
+
 > A Markdown extension for UI wireframes. Describe a screen in a few indented lines. Get a clean SVG mockup that renders anywhere Markdown does — chat, docs, PR comments, issues.
 
 - 代码块：` ```wireloom ` 开头，` ``` ` 结尾；块内只写节点。
