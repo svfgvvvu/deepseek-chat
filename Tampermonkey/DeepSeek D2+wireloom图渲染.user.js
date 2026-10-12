@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DeepSeek D2+wireloom图渲染
 // @namespace    https://github.com/svfgvvvu/deepseek-chat
-// @version      3.3.3
+// @version      3.3.4
 // @description  为 AI Chat 中的 d2 / wireloom 代码块提供手动/自动渲染切换、重渲染、分组对比、复制图片、放大查看
 // @author       zhuang.wang
 // @match        https://chat.deepseek.com/*
@@ -1316,6 +1316,7 @@
                 svgArea.style.cursor = 'zoom-in';
                 rendered = true;
                 errorArea.style.display = 'none';
+                errorArea.innerHTML = '';           // 清理旧的错误卡片
                 actionBar.style.display = 'flex';
                 touchRenderHistory(block);
                 enforceCacheLimit();
@@ -1323,14 +1324,58 @@
             } catch (e) {
                 error('渲染失败 [' + name + ']:', e);
                 if (currentAutoRender) {
+                    // ---- 自动模式：显示可重试的错误卡片 ----
                     svgArea.innerHTML = '';
-                    errorArea.innerHTML = `
-                        <div style="font-weight:bold; margin-bottom:4px;">⚠️ 渲染失败</div>
-                        <div style="margin-bottom:6px;">${e.message}</div>
-                        <div style="color:#888; font-size:11px;">${renderer.displayName} 语法不正确，请让 AI 重新生成。</div>
-                    `;
+                    errorArea.innerHTML = '';
+
+                    const title = document.createElement('div');
+                    title.style.cssText = 'font-weight:bold; margin-bottom:4px;';
+                    title.textContent = '⚠️ 渲染失败';
+
+                    const msg = document.createElement('div');
+                    msg.style.cssText = 'margin-bottom:6px; word-break:break-word;';
+                    msg.textContent = e.message;
+
+                    const hint = document.createElement('div');
+                    hint.style.cssText = 'color:#888; font-size:11px; margin-bottom:8px;';
+                    hint.textContent = `${renderer.displayName} 语法不正确，请让 AI 重新生成，或修改后点击重试。`;
+
+                    const retryBtn = document.createElement('div');
+                    retryBtn.setAttribute('role', 'button');
+                    retryBtn.setAttribute('tabindex', '0');
+                    retryBtn.className = 'ds-graph-retry-btn';
+                    retryBtn.textContent = '↻ 重新渲染';
+                    retryBtn.style.cssText = `display:inline-block;cursor:pointer;font-size:12px;
+                        padding:4px 14px;background:#fff;border:1px solid ${accent};border-radius:4px;
+                        color:${accent};user-select:none;transition:background .15s;font-weight:500;`;
+                    retryBtn.addEventListener('mouseenter', () => { retryBtn.style.background = '#f5f7fa'; });
+                    retryBtn.addEventListener('mouseleave', () => { retryBtn.style.background = '#fff'; });
+
+                    function doRetry() {
+                        if (rendering) return;
+                        // 重新从代码块里提取（内容可能刚被 AI 更新过）
+                        const newSource = adapter.getSource(block);
+                        if (!newSource) return;
+
+                        source = newSource;
+                        block.dataset.dsHash = name + '|' + simpleHash(newSource);
+
+                        errorArea.style.display = 'none';
+                        errorArea.innerHTML = '';
+                        svgArea.innerHTML = `<span style="color:${accent};font-size:12px;">正在渲染 ${renderer.displayName} 图…</span>`;
+                        // 不复位 rendered（它本来就是 false），直接重试
+                        doRender();
+                    }
+
+                    retryBtn.addEventListener('click', (ev) => { ev.stopPropagation(); ev.preventDefault(); doRetry(); });
+                    retryBtn.addEventListener('keydown', (ev) => {
+                        if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); ev.stopPropagation(); doRetry(); }
+                    });
+
+                    errorArea.append(title, msg, hint, retryBtn);
                     errorArea.style.display = 'block';
                 } else {
+                    // 手动模式：保持原有行为（占位符本身可点击重试）
                     errorArea.style.display = 'none';
                     showManualPlaceholder(e.message);
                 }
