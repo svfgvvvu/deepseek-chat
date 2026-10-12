@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DeepSeek D2+wireloom图渲染
 // @namespace    https://github.com/svfgvvvu/deepseek-chat
-// @version      3.3.5
+// @version      3.3.6
 // @description  为 AI Chat 中的 d2 / wireloom 代码块提供手动/自动渲染切换、重渲染、分组对比、复制图片、放大查看
 // @author       zhuang.wang
 // @match        https://chat.deepseek.com/*
@@ -1195,6 +1195,19 @@
         let rendering = false;
         let visible = true;
 
+        // ------------------------------------------------------------
+        // 从当前 DOM 位置反查"活着的"代码块。
+        // 若 React 在流式输出中替换了 .md-code-block 节点，闭包里的 block
+        // 会变成脱离文档的孤立引用；svgArea 是我们注入卡片的子元素，只要
+        // 卡片还挂在 DOM 上，closest 就能拿到当前真实的 .md-code-block。
+        // ------------------------------------------------------------
+        function resolveLiveBlock() {
+            const live = svgArea.closest('.md-code-block');
+            if (live && live.isConnected) return live;
+            // 回退：svgArea 本身也被摘下时（极端情况），再用缓存引用兜底
+            return (block && block.isConnected) ? block : null;
+        }
+
         // ---------- 手动模式占位符 ----------
         function showManualPlaceholder(errMsg) {
             svgArea.innerHTML = '';
@@ -1237,7 +1250,18 @@
 
             function trigger() {
                 if (rendering || rendered) return;
-                // rendering = true 交给 doRender 内部设置，避免重复赋值
+
+                // ★ 先定位当前活着的代码块，再用它读源码。
+                //   如果 React 已替换了旧节点，这一步能拿到新节点，
+                //   否则 doRender 里读的仍是过期的 DOM 快照。
+                const liveBlock = resolveLiveBlock();
+                if (!liveBlock) return;
+                block = liveBlock;
+                const newSource = adapter.getSource(liveBlock);
+                if (!newSource) return;
+                source = newSource;
+                block.dataset.dsHash = name + '|' + simpleHash(newSource);
+
                 ph.style.pointerEvents = 'none';
                 icon.textContent = '⏳';
                 text.textContent = '正在渲染…';
@@ -1292,8 +1316,13 @@
             ev.stopPropagation(); ev.preventDefault();
             if (rendering) return;
 
-            // 从源码里重新提取（代码块可能已经更新）
-            const newSource = adapter.getSource(block);
+            // ★ 先定位当前活着的代码块，再读源码。
+            //   避免 React 替换节点后读到孤立旧节点的 DOM 快照。
+            const liveBlock = resolveLiveBlock();
+            if (!liveBlock) return;
+            block = liveBlock;
+
+            const newSource = adapter.getSource(liveBlock);
             if (!newSource) return;
 
             // 复位状态
@@ -1407,9 +1436,20 @@
 
                     function doRetry() {
                         if (rendering) return;
-                        // 重新从代码块里提取（内容可能刚被 AI 更新过）
-                        const newSource = adapter.getSource(block);
+
+                        // ★ 关键修复：不用闭包里的旧 block，从 DOM 位置反查活的 block。
+                        //   这样即使 React 替换了 .md-code-block 节点，
+                        //   也一定能读到当前最新 DOM 中的源码。
+                        const liveBlock = resolveLiveBlock();
+                        if (!liveBlock) return;
+
+                        const newSource = adapter.getSource(liveBlock);
                         if (!newSource) return;
+
+                        // 把闭包里的 block 同步到新节点，
+                        // 使得后续 doRender 里的 touchRenderHistory(block)、
+                        // collectRenderedGraphs 都能看到正确的节点
+                        block = liveBlock;
 
                         source = newSource;
                         block.dataset.dsHash = name + '|' + simpleHash(newSource);
