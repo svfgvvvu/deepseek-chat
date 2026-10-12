@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DeepSeek D2+wireloom图渲染
 // @namespace    https://github.com/svfgvvvu/deepseek-chat
-// @version      3.3.4
+// @version      3.3.5
 // @description  为 AI Chat 中的 d2 / wireloom 代码块提供手动/自动渲染切换、重渲染、分组对比、复制图片、放大查看
 // @author       zhuang.wang
 // @match        https://chat.deepseek.com/*
@@ -111,6 +111,25 @@
             return true;
         } finally {
             URL.revokeObjectURL(url);
+        }
+    }
+
+    async function copyTextToClipboard(text) {
+        try {
+            await navigator.clipboard.writeText(text);
+            return true;
+        } catch (e) {
+            // 降级：execCommand
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;';
+            document.body.appendChild(ta);
+            ta.focus();
+            ta.select();
+            let ok = false;
+            try { ok = document.execCommand('copy'); } catch (e2) { /* ignore */ }
+            ta.remove();
+            return ok;
         }
     }
 
@@ -1204,7 +1223,12 @@
             if (errMsg) {
                 const msg = document.createElement('div');
                 msg.textContent = errMsg;
-                msg.style.cssText = 'color:#888;font-size:11px;max-width:480px;text-align:center;line-height:1.4;';
+                msg.style.cssText = 'color:#888;font-size:11px;max-width:480px;text-align:center;' +
+                    'line-height:1.4;user-select:text;cursor:text;';
+                // 阻止冒泡：拖选文字时不会误触 ph 的 click/keydown → 不会误触发重试
+                msg.addEventListener('mousedown', (e) => e.stopPropagation());
+                msg.addEventListener('click',     (e) => e.stopPropagation());
+                msg.addEventListener('keydown',   (e) => e.stopPropagation());
                 ph.appendChild(msg);
             }
 
@@ -1213,7 +1237,7 @@
 
             function trigger() {
                 if (rendering || rendered) return;
-                rendering = true;
+                // rendering = true 交给 doRender 内部设置，避免重复赋值
                 ph.style.pointerEvents = 'none';
                 icon.textContent = '⏳';
                 text.textContent = '正在渲染…';
@@ -1275,6 +1299,7 @@
             // 复位状态
             rendered = false;
             errorArea.style.display = 'none';
+            errorArea.innerHTML = '';
             actionBar.style.display = 'none';
             svgArea.innerHTML = `<span style="color:${accent};font-size:12px;">正在渲染 ${renderer.displayName} 图…</span>`;
 
@@ -1307,7 +1332,9 @@
         });
 
         async function doRender() {
-            if (rendered) return;
+            // 统一守卫：已渲染或正在渲染都直接返回，防止并发竞态
+            if (rendered || rendering) return;
+            rendering = true;
             try {
                 const engine = await getEngine(name);
                 const svgString = await renderer.render(engine, source);
@@ -1324,7 +1351,7 @@
             } catch (e) {
                 error('渲染失败 [' + name + ']:', e);
                 if (currentAutoRender) {
-                    // ---- 自动模式：显示可重试的错误卡片 ----
+                    // ---- 自动模式：显示可重试 + 可复制的错误卡片 ----
                     svgArea.innerHTML = '';
                     errorArea.innerHTML = '';
 
@@ -1333,23 +1360,50 @@
                     title.textContent = '⚠️ 渲染失败';
 
                     const msg = document.createElement('div');
-                    msg.style.cssText = 'margin-bottom:6px; word-break:break-word;';
+                    msg.style.cssText = 'margin-bottom:6px; word-break:break-word; user-select:text; cursor:text;';
                     msg.textContent = e.message;
 
                     const hint = document.createElement('div');
-                    hint.style.cssText = 'color:#888; font-size:11px; margin-bottom:8px;';
+                    hint.style.cssText = 'color:#888; font-size:11px; margin-bottom:8px; user-select:text;';
                     hint.textContent = `${renderer.displayName} 语法不正确，请让 AI 重新生成，或修改后点击重试。`;
 
-                    const retryBtn = document.createElement('div');
-                    retryBtn.setAttribute('role', 'button');
-                    retryBtn.setAttribute('tabindex', '0');
+                    const btnRow = document.createElement('div');
+                    btnRow.style.cssText = 'display:flex; gap:8px; flex-wrap:wrap;';
+
+                    const mkErrBtn = (text) => {
+                        const b = document.createElement('div');
+                        b.setAttribute('role', 'button');
+                        b.setAttribute('tabindex', '0');
+                        b.textContent = text;
+                        b.style.cssText = `display:inline-block;cursor:pointer;font-size:12px;
+                            padding:4px 14px;background:#fff;border:1px solid ${accent};border-radius:4px;
+                            color:${accent};user-select:none;transition:background .15s;font-weight:500;`;
+                        b.addEventListener('mouseenter', () => { b.style.background = '#f5f7fa'; });
+                        b.addEventListener('mouseleave', () => { b.style.background = '#fff'; });
+                        return b;
+                    };
+
+                    // ---- 复制错误（含源码，便于直接反馈给 AI） ----
+                    const copyErrBtn = mkErrBtn('⎘ 复制错误');
+                    copyErrBtn.title = '复制错误信息和源码，可直接粘贴给 AI';
+                    copyErrBtn.addEventListener('click', async (ev) => {
+                        ev.stopPropagation(); ev.preventDefault();
+                        const text =
+                            `[${renderer.displayName} 渲染失败]\n${e.message}\n\n` +
+                            `源码:\n${source}`;
+                        const ok = await copyTextToClipboard(text);
+                        const orig = copyErrBtn.textContent;
+                        copyErrBtn.textContent = ok ? '✓ 已复制' : '✗ 失败';
+                        copyErrBtn.style.color = ok ? '#1a9e5a' : '#c00';
+                        setTimeout(() => {
+                            copyErrBtn.textContent = orig;
+                            copyErrBtn.style.color = accent;
+                        }, 1400);
+                    });
+
+                    // ---- 重新渲染 ----
+                    const retryBtn = mkErrBtn('↻ 重新渲染');
                     retryBtn.className = 'ds-graph-retry-btn';
-                    retryBtn.textContent = '↻ 重新渲染';
-                    retryBtn.style.cssText = `display:inline-block;cursor:pointer;font-size:12px;
-                        padding:4px 14px;background:#fff;border:1px solid ${accent};border-radius:4px;
-                        color:${accent};user-select:none;transition:background .15s;font-weight:500;`;
-                    retryBtn.addEventListener('mouseenter', () => { retryBtn.style.background = '#f5f7fa'; });
-                    retryBtn.addEventListener('mouseleave', () => { retryBtn.style.background = '#fff'; });
 
                     function doRetry() {
                         if (rendering) return;
@@ -1372,10 +1426,11 @@
                         if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); ev.stopPropagation(); doRetry(); }
                     });
 
-                    errorArea.append(title, msg, hint, retryBtn);
+                    btnRow.append(copyErrBtn, retryBtn);
+                    errorArea.append(title, msg, hint, btnRow);
                     errorArea.style.display = 'block';
                 } else {
-                    // 手动模式：保持原有行为（占位符本身可点击重试）
+                    // 手动模式：显示可点击重试的占位符（错误信息可选中）
                     errorArea.style.display = 'none';
                     showManualPlaceholder(e.message);
                 }
