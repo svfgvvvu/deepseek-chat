@@ -57,7 +57,8 @@
 **annotation**：顶层缩进 0，与 window 同级。`annotation "body" target="id" position=left|right|top|bottom`；body 换行 `\n`；target 无匹配静默丢弃。
 
 **校验**：window 唯一 · 首行无缩进 · 2 空格 · 容器尾 `:` · status 有 kind · row 单类型 · segmented selected≤1 · annotation 顶层 · grid 有 cols/rows。  
-**盲区**：Tab 解析错误；justify 无 center；status 无 danger，用 error。
+**盲区**：Tab 解析错误；justify 无 center；status 无 danger，用 error。  
+**解析问题**：`input` 叶子按 `input "标签" placeholder="值"` 写会报 `expected newline after "input"`；规避用 `kv`/`text`/`divider` 组合模拟输入区，或仅写 `input` 不跟标签与属性。其他易错：`col` 无 align/max-width；`row` 按钮或文本二选一；`segmented` 非 window 直属且 selected≤1；`status` 必须带 kind；`annotation` 顶层；`grid` 必须 cols/rows；容器尾 `:`，叶子尾直接结束，缩进 2 空格。
 
 ```wireloom
 window "示例":
